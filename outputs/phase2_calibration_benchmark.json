@@ -1,0 +1,1635 @@
+{
+  "benchmark_version": "phase2_v1",
+  "phase1_regression_gate": {
+    "frame1_median_err_yd_hash_only": 0.275,
+    "frame2_median_err_yd_hash_only": 0.35,
+    "frame3_median_err_yd_hash_only": 0.057,
+    "matches_phase1_baseline_exactly": true
+  },
+  "single_frame_aggregate": {
+    "total_frames": 12,
+    "calibrated_frames": 9,
+    "refused_frames": 3,
+    "fabricated_frames": 0,
+    "splits": {
+      "train": {
+        "total_frames": 3,
+        "expected_calibratable": 2,
+        "calibrated_count": 2,
+        "refused_count": 1,
+        "fabricated_count": 0,
+        "mean_confidence_when_calibrated": 0.6081,
+        "median_held_out_err_yd": null,
+        "mean_runtime_ms": 103.68
+      },
+      "val": {
+        "total_frames": 3,
+        "expected_calibratable": 3,
+        "calibrated_count": 3,
+        "refused_count": 0,
+        "fabricated_count": 0,
+        "mean_confidence_when_calibrated": 0.8716,
+        "median_held_out_err_yd": 0.275,
+        "mean_runtime_ms": 127.9
+      },
+      "test": {
+        "total_frames": 6,
+        "expected_calibratable": 4,
+        "calibrated_count": 4,
+        "refused_count": 2,
+        "fabricated_count": 0,
+        "mean_confidence_when_calibrated": 0.8795,
+        "median_held_out_err_yd": 0.27,
+        "mean_runtime_ms": 54.89
+      }
+    },
+    "per_condition": {
+      "different_camera_angle": {
+        "n_frames": 1,
+        "calibrated_count": 0,
+        "refused_count": 1,
+        "failure_rate": 1.0,
+        "mean_confidence_when_calibrated": 0.0,
+        "median_held_out_err_yd": null
+      },
+      "different_lighting": {
+        "n_frames": 2,
+        "calibrated_count": 2,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.8806,
+        "median_held_out_err_yd": 0.277
+      },
+      "different_resolution": {
+        "n_frames": 1,
+        "calibrated_count": 1,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.858,
+        "median_held_out_err_yd": null
+      },
+      "heavy_player_occlusion": {
+        "n_frames": 2,
+        "calibrated_count": 0,
+        "refused_count": 2,
+        "failure_rate": 1.0,
+        "mean_confidence_when_calibrated": 0.0,
+        "median_held_out_err_yd": null
+      },
+      "high_angle": {
+        "n_frames": 1,
+        "calibrated_count": 1,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.8429,
+        "median_held_out_err_yd": 0.057
+      },
+      "low_resolution": {
+        "n_frames": 2,
+        "calibrated_count": 2,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.6081,
+        "median_held_out_err_yd": null
+      },
+      "midfield_logo": {
+        "n_frames": 2,
+        "calibrated_count": 2,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.869,
+        "median_held_out_err_yd": 0.364
+      },
+      "normal_lighting": {
+        "n_frames": 4,
+        "calibrated_count": 4,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.8347,
+        "median_held_out_err_yd": 0.275
+      },
+      "partial_field_visibility": {
+        "n_frames": 4,
+        "calibrated_count": 2,
+        "refused_count": 2,
+        "failure_rate": 0.5,
+        "mean_confidence_when_calibrated": 0.6954,
+        "median_held_out_err_yd": 0.27
+      },
+      "partial_sideline": {
+        "n_frames": 1,
+        "calibrated_count": 1,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.8735,
+        "median_held_out_err_yd": 0.35
+      },
+      "sideline_absent": {
+        "n_frames": 6,
+        "calibrated_count": 5,
+        "refused_count": 1,
+        "failure_rate": 0.167,
+        "mean_confidence_when_calibrated": 0.7631,
+        "median_held_out_err_yd": 0.164
+      },
+      "sideline_visible": {
+        "n_frames": 2,
+        "calibrated_count": 2,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.8977,
+        "median_held_out_err_yd": 0.226
+      },
+      "telestrator_overlay": {
+        "n_frames": 2,
+        "calibrated_count": 2,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.8504,
+        "median_held_out_err_yd": 0.057
+      },
+      "virtual_first_down": {
+        "n_frames": 3,
+        "calibrated_count": 3,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.8788,
+        "median_held_out_err_yd": 0.35
+      },
+      "virtual_los": {
+        "n_frames": 3,
+        "calibrated_count": 3,
+        "refused_count": 0,
+        "failure_rate": 0.0,
+        "mean_confidence_when_calibrated": 0.898,
+        "median_held_out_err_yd": 0.27
+      }
+    }
+  },
+  "single_frame_records": [
+    {
+      "frame_id": "sf_01_sea_sf_fox",
+      "title": "SEA vs SF \u2014 FOX Broadcast (Sideline + Virtual Overlays)",
+      "split": "val",
+      "game": "SEA vs SF",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "resolution": "900x506",
+      "transform": "none",
+      "conditions": [
+        "sideline_visible",
+        "virtual_los",
+        "virtual_first_down",
+        "normal_lighting"
+      ],
+      "expected_calibratable": true,
+      "success": true,
+      "confidence": 0.8985,
+      "x_coord_mode": "relative_10yd",
+      "yard_lines_count": 5,
+      "hash_inliers_count": 30,
+      "ridge_orth_median_px": 0.963,
+      "hash_row_rmse_px": 0.661,
+      "held_out_median_err_yd_hash_only": 0.275,
+      "held_out_median_err_yd_with_sideline": 0.302,
+      "failure_reason": null,
+      "runtime_ms": 212.18,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_02_nyj_jax_fox",
+      "title": "NYJ vs JAX \u2014 FOX Broadcast (Midfield Logo + Partial Sideline)",
+      "split": "val",
+      "game": "NYJ vs JAX",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "resolution": "900x507",
+      "transform": "none",
+      "conditions": [
+        "midfield_logo",
+        "partial_sideline",
+        "virtual_first_down",
+        "normal_lighting"
+      ],
+      "expected_calibratable": true,
+      "success": true,
+      "confidence": 0.8735,
+      "x_coord_mode": "relative_10yd",
+      "yard_lines_count": 6,
+      "hash_inliers_count": 25,
+      "ridge_orth_median_px": 1.292,
+      "hash_row_rmse_px": 0.731,
+      "held_out_median_err_yd_hash_only": 0.35,
+      "held_out_median_err_yd_with_sideline": 0.301,
+      "failure_reason": null,
+      "runtime_ms": 77.9,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_03_no_car_all22",
+      "title": "NO vs CAR \u2014 NFL All-22 (High Oblique + Telestrator + No Sideline)",
+      "split": "val",
+      "game": "NO vs CAR",
+      "broadcaster": "NFL_All22",
+      "camera_angle": "all22_high_sideline",
+      "resolution": "1246x814",
+      "transform": "none",
+      "conditions": [
+        "sideline_absent",
+        "telestrator_overlay",
+        "high_angle",
+        "normal_lighting"
+      ],
+      "expected_calibratable": true,
+      "success": true,
+      "confidence": 0.8429,
+      "x_coord_mode": "relative_10yd",
+      "yard_lines_count": 5,
+      "hash_inliers_count": 27,
+      "ridge_orth_median_px": 1.225,
+      "hash_row_rmse_px": 1.289,
+      "held_out_median_err_yd_hash_only": 0.057,
+      "held_out_median_err_yd_with_sideline": 0.057,
+      "failure_reason": null,
+      "runtime_ms": 93.63,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_04_broadcast_sideline_wide",
+      "title": "Broadcast Sideline Pre-Snap 4 (758x360 Low-Res Wide)",
+      "split": "train",
+      "game": "Broadcast_Sample_4",
+      "broadcaster": "CBS_Style",
+      "camera_angle": "broadcast_sideline",
+      "resolution": "758x360",
+      "transform": "none",
+      "conditions": [
+        "low_resolution",
+        "sideline_absent",
+        "normal_lighting"
+      ],
+      "expected_calibratable": true,
+      "success": true,
+      "confidence": 0.724,
+      "x_coord_mode": "relative_10yd",
+      "yard_lines_count": 3,
+      "hash_inliers_count": 16,
+      "ridge_orth_median_px": 0.708,
+      "hash_row_rmse_px": 0.242,
+      "held_out_median_err_yd_hash_only": null,
+      "held_out_median_err_yd_with_sideline": null,
+      "failure_reason": null,
+      "runtime_ms": 26.89,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_05_broadcast_cropped_vertical",
+      "title": "Broadcast 1st & 10 Cropped Vertical (330x410 Partial Field)",
+      "split": "train",
+      "game": "Broadcast_Sample_1",
+      "broadcaster": "NBC_Style",
+      "camera_angle": "broadcast_cropped",
+      "resolution": "330x410",
+      "transform": "none",
+      "conditions": [
+        "partial_field_visibility",
+        "low_resolution",
+        "sideline_absent"
+      ],
+      "expected_calibratable": true,
+      "success": true,
+      "confidence": 0.4922,
+      "x_coord_mode": "relative_5yd",
+      "yard_lines_count": 4,
+      "hash_inliers_count": 22,
+      "ridge_orth_median_px": 6.601,
+      "hash_row_rmse_px": 2.791,
+      "held_out_median_err_yd_hash_only": null,
+      "held_out_median_err_yd_with_sideline": null,
+      "failure_reason": null,
+      "runtime_ms": 205.77,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_06_all22_tight_scrum_uncalibratable",
+      "title": "All-22 Tight Line Scrum (1200x668 \u2014 Hash Marks Occluded)",
+      "split": "train",
+      "game": "All22_Sample_4",
+      "broadcaster": "NFL_All22",
+      "camera_angle": "all22_tight",
+      "resolution": "1200x668",
+      "transform": "none",
+      "conditions": [
+        "heavy_player_occlusion",
+        "sideline_absent"
+      ],
+      "expected_calibratable": false,
+      "success": false,
+      "confidence": 0.0,
+      "x_coord_mode": "uncalibrated",
+      "yard_lines_count": 4,
+      "hash_inliers_count": 0,
+      "ridge_orth_median_px": 2.849,
+      "hash_row_rmse_px": null,
+      "held_out_median_err_yd_hash_only": null,
+      "held_out_median_err_yd_with_sideline": null,
+      "failure_reason": "insufficient_hash_ticks",
+      "runtime_ms": 78.37,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_07_sea_sf_low_light_shadow",
+      "title": "SEA vs SF \u2014 Stadium Shadow / Low-Light Variant (0.68x Gamma)",
+      "split": "test",
+      "game": "SEA vs SF",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "resolution": "900x506",
+      "transform": "darken_068",
+      "conditions": [
+        "sideline_visible",
+        "virtual_los",
+        "different_lighting"
+      ],
+      "expected_calibratable": true,
+      "success": true,
+      "confidence": 0.8968,
+      "x_coord_mode": "relative_10yd",
+      "yard_lines_count": 5,
+      "hash_inliers_count": 28,
+      "ridge_orth_median_px": 0.981,
+      "hash_row_rmse_px": 0.671,
+      "held_out_median_err_yd_hash_only": 0.176,
+      "held_out_median_err_yd_with_sideline": 0.259,
+      "failure_reason": null,
+      "runtime_ms": 55.49,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_08_nyj_jax_overexposed_glare",
+      "title": "NYJ vs JAX \u2014 Bright Glare Variant (1.22x Gain + Contrast)",
+      "split": "test",
+      "game": "NYJ vs JAX",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "resolution": "900x507",
+      "transform": "brighten_122",
+      "conditions": [
+        "midfield_logo",
+        "different_lighting",
+        "virtual_first_down"
+      ],
+      "expected_calibratable": true,
+      "success": true,
+      "confidence": 0.8644,
+      "x_coord_mode": "relative_10yd",
+      "yard_lines_count": 6,
+      "hash_inliers_count": 26,
+      "ridge_orth_median_px": 1.261,
+      "hash_row_rmse_px": 0.908,
+      "held_out_median_err_yd_hash_only": 0.378,
+      "held_out_median_err_yd_with_sideline": 0.355,
+      "failure_reason": null,
+      "runtime_ms": 75.45,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_09_no_car_720p_rescaled",
+      "title": "NO vs CAR \u2014 1280x720 Broadcast HD Rescale + Telestrator",
+      "split": "test",
+      "game": "NO vs CAR",
+      "broadcaster": "NFL_All22",
+      "camera_angle": "all22_high_sideline",
+      "resolution": "1280x720",
+      "transform": "resize_1280x720",
+      "conditions": [
+        "sideline_absent",
+        "telestrator_overlay",
+        "different_resolution"
+      ],
+      "expected_calibratable": true,
+      "success": true,
+      "confidence": 0.858,
+      "x_coord_mode": "relative_10yd",
+      "yard_lines_count": 5,
+      "hash_inliers_count": 27,
+      "ridge_orth_median_px": 1.065,
+      "hash_row_rmse_px": 1.207,
+      "held_out_median_err_yd_hash_only": null,
+      "held_out_median_err_yd_with_sideline": null,
+      "failure_reason": null,
+      "runtime_ms": 103.26,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_10_sea_sf_sideline_cropped",
+      "title": "SEA vs SF \u2014 Far Sideline Masked / Partial Field Visibility",
+      "split": "test",
+      "game": "SEA vs SF",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "resolution": "900x506",
+      "transform": "mask_far_sideline",
+      "conditions": [
+        "sideline_absent",
+        "partial_field_visibility",
+        "virtual_los"
+      ],
+      "expected_calibratable": true,
+      "success": true,
+      "confidence": 0.8986,
+      "x_coord_mode": "relative_10yd",
+      "yard_lines_count": 5,
+      "hash_inliers_count": 30,
+      "ridge_orth_median_px": 0.961,
+      "hash_row_rmse_px": 0.661,
+      "held_out_median_err_yd_hash_only": 0.27,
+      "held_out_median_err_yd_with_sideline": 0.27,
+      "failure_reason": null,
+      "runtime_ms": 49.04,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_11_endzone_tight_view_uncalibratable",
+      "title": "End-Zone / Tight View Pre-Snap (800x450 \u2014 < 3 Yard Lines)",
+      "split": "test",
+      "game": "Broadcast_Endzone_1",
+      "broadcaster": "CBS_Style",
+      "camera_angle": "endzone_tight",
+      "resolution": "800x450",
+      "transform": "none",
+      "conditions": [
+        "different_camera_angle",
+        "partial_field_visibility"
+      ],
+      "expected_calibratable": false,
+      "success": false,
+      "confidence": 0.0,
+      "x_coord_mode": "uncalibrated",
+      "yard_lines_count": 0,
+      "hash_inliers_count": 0,
+      "ridge_orth_median_px": null,
+      "hash_row_rmse_px": null,
+      "held_out_median_err_yd_hash_only": null,
+      "held_out_median_err_yd_with_sideline": null,
+      "failure_reason": "insufficient_yard_lines",
+      "runtime_ms": 9.51,
+      "fabricated_calibration": false
+    },
+    {
+      "frame_id": "sf_12_heavy_occlusion_both_hashes_blocked",
+      "title": "SEA vs SF \u2014 Heavy Midfield Pileup Occluding Both Hash Rows",
+      "split": "test",
+      "game": "SEA vs SF",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "resolution": "900x506",
+      "transform": "occlude_both_hash_rows",
+      "conditions": [
+        "heavy_player_occlusion",
+        "partial_field_visibility"
+      ],
+      "expected_calibratable": false,
+      "success": false,
+      "confidence": 0.0,
+      "x_coord_mode": "uncalibrated",
+      "yard_lines_count": 5,
+      "hash_inliers_count": 0,
+      "ridge_orth_median_px": 0.935,
+      "hash_row_rmse_px": null,
+      "held_out_median_err_yd_hash_only": null,
+      "held_out_median_err_yd_with_sideline": null,
+      "failure_reason": "missing_hash_rows",
+      "runtime_ms": 36.59,
+      "fabricated_calibration": false
+    }
+  ],
+  "temporal_aggregate": {
+    "num_sequences": 8,
+    "total_frames": 96,
+    "direct_calibrated_frames": 55,
+    "propagated_calibrated_frames": 7,
+    "total_calibrated_frames": 62,
+    "total_refused_frames": 34,
+    "refusal_rate_of_total_frames_pct": 35.42,
+    "per_sequence_refusals": [
+      0,
+      0,
+      1,
+      10,
+      6,
+      7,
+      3,
+      7
+    ],
+    "fabricated_frames": 0,
+    "failure_reason_counts": {
+      "confidence_expired": 1,
+      "camera_cut_uncalibrated": 5,
+      "no_hough_lines": 22,
+      "missing_hash_rows": 6
+    },
+    "failure_reason_percentages_of_34_refusals": {
+      "confidence_expired": 2.94,
+      "camera_cut_uncalibrated": 14.71,
+      "no_hough_lines": 64.71,
+      "missing_hash_rows": 17.65
+    },
+    "failure_reason_percentages_of_96_frames": {
+      "confidence_expired": 1.04,
+      "camera_cut_uncalibrated": 5.21,
+      "no_hough_lines": 22.92,
+      "missing_hash_rows": 6.25
+    }
+  },
+  "temporal_sequences": [
+    {
+      "sequence_id": "seq_01_camera_pan",
+      "title": "Smooth Camera Pan (12 frames)",
+      "split": "val",
+      "stress_type": "camera_pan",
+      "num_frames": 12,
+      "direct_frames": 12,
+      "propagated_frames": 0,
+      "calibrated_frames": 12,
+      "refused_frames": 0,
+      "expected_refused_frames": 0,
+      "recoveries_count": 0,
+      "fabricated_frames": 0,
+      "frames": [
+        {
+          "frame_index": 0,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 1,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 2,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8986,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 3,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8986,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 4,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8986,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 5,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8983,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 6,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8983,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 7,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8981,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 8,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8984,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 9,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8977,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 10,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.898,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 11,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.898,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        }
+      ]
+    },
+    {
+      "sequence_id": "seq_02_camera_zoom",
+      "title": "Progressive Camera Zoom (12 frames)",
+      "split": "val",
+      "stress_type": "camera_zoom",
+      "num_frames": 12,
+      "direct_frames": 12,
+      "propagated_frames": 0,
+      "calibrated_frames": 12,
+      "refused_frames": 0,
+      "expected_refused_frames": 0,
+      "recoveries_count": 0,
+      "fabricated_frames": 0,
+      "frames": [
+        {
+          "frame_index": 0,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 1,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.9171,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 2,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.9128,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 3,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8969,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 4,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.9108,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 5,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.898,
+          "x_coord_mode": "relative_5yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 6,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8938,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 7,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.9041,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 8,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8988,
+          "x_coord_mode": "relative_5yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 9,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.9062,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 10,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.902,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 11,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.9011,
+          "x_coord_mode": "relative_5yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        }
+      ]
+    },
+    {
+      "sequence_id": "seq_03_short_line_dropout",
+      "title": "Short Loss of Visible Yard Lines + Recovery (12 frames)",
+      "split": "test",
+      "stress_type": "short_line_dropout",
+      "num_frames": 12,
+      "direct_frames": 7,
+      "propagated_frames": 4,
+      "calibrated_frames": 11,
+      "refused_frames": 1,
+      "expected_refused_frames": 1,
+      "recoveries_count": 1,
+      "fabricated_frames": 0,
+      "frames": [
+        {
+          "frame_index": 0,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 1,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8986,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 2,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8986,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 3,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8983,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 4,
+          "state": "propagated",
+          "success": true,
+          "confidence": 0.7186,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 1,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 5,
+          "state": "propagated",
+          "success": true,
+          "confidence": 0.5749,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 2,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 6,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8977,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 7,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8974,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 8,
+          "state": "propagated",
+          "success": true,
+          "confidence": 0.7179,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 1,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 9,
+          "state": "propagated",
+          "success": true,
+          "confidence": 0.5743,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 2,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 10,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.4594,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 3,
+          "failure_reason": "confidence_expired",
+          "fabricated": false
+        },
+        {
+          "frame_index": 11,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8955,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        }
+      ]
+    },
+    {
+      "sequence_id": "seq_04_prolonged_dropout_expiration",
+      "title": "Prolonged Landmark Dropout -> Confidence Expiration (12 frames)",
+      "split": "test",
+      "stress_type": "prolonged_dropout",
+      "num_frames": 12,
+      "direct_frames": 1,
+      "propagated_frames": 1,
+      "calibrated_frames": 2,
+      "refused_frames": 10,
+      "expected_refused_frames": 10,
+      "recoveries_count": 0,
+      "fabricated_frames": 0,
+      "frames": [
+        {
+          "frame_index": 0,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 1,
+          "state": "propagated",
+          "success": true,
+          "confidence": 0.7188,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 1,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 2,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "camera_cut_uncalibrated",
+          "fabricated": false
+        },
+        {
+          "frame_index": 3,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 4,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 5,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 6,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 7,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 8,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 9,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 10,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 11,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        }
+      ]
+    },
+    {
+      "sequence_id": "seq_05_camera_cut_and_recovery",
+      "title": "Camera Cut to Graphic & Recovery on New Angle (12 frames)",
+      "split": "test",
+      "stress_type": "camera_cut",
+      "num_frames": 12,
+      "direct_frames": 6,
+      "propagated_frames": 0,
+      "calibrated_frames": 6,
+      "refused_frames": 6,
+      "expected_refused_frames": 6,
+      "recoveries_count": 1,
+      "fabricated_frames": 0,
+      "frames": [
+        {
+          "frame_index": 0,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 1,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 2,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 3,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "camera_cut_uncalibrated",
+          "fabricated": false
+        },
+        {
+          "frame_index": 4,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 5,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 6,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 7,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 8,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 9,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.9019,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 10,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.9019,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 11,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.9019,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        }
+      ]
+    },
+    {
+      "sequence_id": "seq_06_optical_flow_failure",
+      "title": "Severe Motion Blur / Optical-Flow Failure & Recovery (12 frames)",
+      "split": "test",
+      "stress_type": "optical_flow_failure",
+      "num_frames": 12,
+      "direct_frames": 4,
+      "propagated_frames": 1,
+      "calibrated_frames": 5,
+      "refused_frames": 7,
+      "expected_refused_frames": 7,
+      "recoveries_count": 1,
+      "fabricated_frames": 0,
+      "frames": [
+        {
+          "frame_index": 0,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 1,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 2,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 3,
+          "state": "propagated",
+          "success": true,
+          "confidence": 0.7188,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 1,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 4,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "camera_cut_uncalibrated",
+          "fabricated": false
+        },
+        {
+          "frame_index": 5,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 6,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 7,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 8,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 9,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 10,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 11,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        }
+      ]
+    },
+    {
+      "sequence_id": "seq_07_large_global_motion",
+      "title": "Fast Whip-Pan / Large Global Field Motion (12 frames)",
+      "split": "test",
+      "stress_type": "large_global_motion",
+      "num_frames": 12,
+      "direct_frames": 9,
+      "propagated_frames": 0,
+      "calibrated_frames": 9,
+      "refused_frames": 3,
+      "expected_refused_frames": 3,
+      "recoveries_count": 1,
+      "fabricated_frames": 0,
+      "frames": [
+        {
+          "frame_index": 0,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 1,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 2,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 3,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 4,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "camera_cut_uncalibrated",
+          "fabricated": false
+        },
+        {
+          "frame_index": 5,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 6,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "no_hough_lines",
+          "fabricated": false
+        },
+        {
+          "frame_index": 7,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 8,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 9,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 10,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 11,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        }
+      ]
+    },
+    {
+      "sequence_id": "seq_08_player_heavy_occlusion",
+      "title": "Player-Heavy Scrum Occlusion Across Hash Rows (12 frames)",
+      "split": "test",
+      "stress_type": "player_heavy_occlusion",
+      "num_frames": 12,
+      "direct_frames": 4,
+      "propagated_frames": 1,
+      "calibrated_frames": 5,
+      "refused_frames": 7,
+      "expected_refused_frames": 7,
+      "recoveries_count": 1,
+      "fabricated_frames": 0,
+      "frames": [
+        {
+          "frame_index": 0,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 1,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 2,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 3,
+          "state": "propagated",
+          "success": true,
+          "confidence": 0.7188,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 1,
+          "failure_reason": null,
+          "fabricated": false
+        },
+        {
+          "frame_index": 4,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "camera_cut_uncalibrated",
+          "fabricated": false
+        },
+        {
+          "frame_index": 5,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "missing_hash_rows",
+          "fabricated": false
+        },
+        {
+          "frame_index": 6,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "missing_hash_rows",
+          "fabricated": false
+        },
+        {
+          "frame_index": 7,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "missing_hash_rows",
+          "fabricated": false
+        },
+        {
+          "frame_index": 8,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "missing_hash_rows",
+          "fabricated": false
+        },
+        {
+          "frame_index": 9,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "missing_hash_rows",
+          "fabricated": false
+        },
+        {
+          "frame_index": 10,
+          "state": "refused",
+          "success": false,
+          "confidence": 0.0,
+          "x_coord_mode": "uncalibrated",
+          "propagation_age": 0,
+          "failure_reason": "missing_hash_rows",
+          "fabricated": false
+        },
+        {
+          "frame_index": 11,
+          "state": "direct",
+          "success": true,
+          "confidence": 0.8985,
+          "x_coord_mode": "relative_10yd",
+          "propagation_age": 0,
+          "failure_reason": null,
+          "fabricated": false
+        }
+      ]
+    }
+  ]
+}

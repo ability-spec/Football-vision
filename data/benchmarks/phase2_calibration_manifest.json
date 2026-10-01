@@ -1,0 +1,239 @@
+{
+  "manifest_version": "phase2_v1",
+  "description": "Phase 2 multi-game, multi-condition single-frame and temporal sequence benchmark manifest with strict train/val/test split separation. Thresholds are frozen from Phase 1; zero parameters are tuned on the TEST split.",
+  "split_protocol": {
+    "train": "Used only for initial algorithm design and synthetic stress-case verification.",
+    "val": "Used for Phase 1 confidence/parity sanity checks and diagnostic inspection.",
+    "test": "Strictly held-out frozen evaluation split; never used to tune any threshold."
+  },
+  "single_frame_dataset": [
+    {
+      "frame_id": "sf_01_sea_sf_fox",
+      "title": "SEA vs SF — FOX Broadcast (Sideline + Virtual Overlays)",
+      "split": "val",
+      "game": "SEA vs SF",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
+      "transform": "none",
+      "x_start_yd": 15.0,
+      "expected_calibratable": true,
+      "conditions": ["sideline_visible", "virtual_los", "virtual_first_down", "normal_lighting"],
+      "week1_title": "Frame 1 (SEA vs SF — FOX Broadcast)"
+    },
+    {
+      "frame_id": "sf_02_nyj_jax_fox",
+      "title": "NYJ vs JAX — FOX Broadcast (Midfield Logo + Partial Sideline)",
+      "split": "val",
+      "game": "NYJ vs JAX",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-4.jpg",
+      "transform": "none",
+      "x_start_yd": 50.0,
+      "expected_calibratable": true,
+      "conditions": ["midfield_logo", "partial_sideline", "virtual_first_down", "normal_lighting"],
+      "week1_title": "Frame 2 (NYJ vs JAX — Midfield Logo, No Full Sideline)"
+    },
+    {
+      "frame_id": "sf_03_no_car_all22",
+      "title": "NO vs CAR — NFL All-22 (High Oblique + Telestrator + No Sideline)",
+      "split": "val",
+      "game": "NO vs CAR",
+      "broadcaster": "NFL_All22",
+      "camera_angle": "all22_high_sideline",
+      "base_image_path": "/home/user/image-search/nfl-all-22-film-pre-snap-formation-offen-5.png",
+      "transform": "none",
+      "x_start_yd": 80.0,
+      "expected_calibratable": true,
+      "conditions": ["sideline_absent", "telestrator_overlay", "high_angle", "normal_lighting"],
+      "week1_title": "Frame 3 (NO vs CAR — All-22 Oblique + Telestrator)"
+    },
+    {
+      "frame_id": "sf_04_broadcast_sideline_wide",
+      "title": "Broadcast Sideline Pre-Snap 4 (758x360 Low-Res Wide)",
+      "split": "train",
+      "game": "Broadcast_Sample_4",
+      "broadcaster": "CBS_Style",
+      "camera_angle": "broadcast_sideline",
+      "base_image_path": "/home/user/image-search/nfl-broadcast-camera-view-sideline-pre-s-4.jpg",
+      "transform": "none",
+      "x_start_yd": 30.0,
+      "expected_calibratable": true,
+      "conditions": ["low_resolution", "sideline_absent", "normal_lighting"]
+    },
+    {
+      "frame_id": "sf_05_broadcast_cropped_vertical",
+      "title": "Broadcast 1st & 10 Cropped Vertical (330x410 Partial Field)",
+      "split": "train",
+      "game": "Broadcast_Sample_1",
+      "broadcaster": "NBC_Style",
+      "camera_angle": "broadcast_cropped",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-1.webp",
+      "transform": "none",
+      "x_start_yd": 25.0,
+      "expected_calibratable": true,
+      "conditions": ["partial_field_visibility", "low_resolution", "sideline_absent"]
+    },
+    {
+      "frame_id": "sf_06_all22_tight_scrum_uncalibratable",
+      "title": "All-22 Tight Line Scrum (1200x668 — Hash Marks Occluded)",
+      "split": "train",
+      "game": "All22_Sample_4",
+      "broadcaster": "NFL_All22",
+      "camera_angle": "all22_tight",
+      "base_image_path": "/home/user/image-search/nfl-all-22-film-pre-snap-formation-offen-4.jpg",
+      "transform": "none",
+      "x_start_yd": 40.0,
+      "expected_calibratable": false,
+      "conditions": ["heavy_player_occlusion", "sideline_absent"]
+    },
+    {
+      "frame_id": "sf_07_sea_sf_low_light_shadow",
+      "title": "SEA vs SF — Stadium Shadow / Low-Light Variant (0.68x Gamma)",
+      "split": "test",
+      "game": "SEA vs SF",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
+      "transform": "darken_068",
+      "x_start_yd": 15.0,
+      "expected_calibratable": true,
+      "conditions": ["sideline_visible", "virtual_los", "different_lighting"],
+      "week1_title": "Frame 1 (SEA vs SF — FOX Broadcast)"
+    },
+    {
+      "frame_id": "sf_08_nyj_jax_overexposed_glare",
+      "title": "NYJ vs JAX — Bright Glare Variant (1.22x Gain + Contrast)",
+      "split": "test",
+      "game": "NYJ vs JAX",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-4.jpg",
+      "transform": "brighten_122",
+      "x_start_yd": 50.0,
+      "expected_calibratable": true,
+      "conditions": ["midfield_logo", "different_lighting", "virtual_first_down"],
+      "week1_title": "Frame 2 (NYJ vs JAX — Midfield Logo, No Full Sideline)"
+    },
+    {
+      "frame_id": "sf_09_no_car_720p_rescaled",
+      "title": "NO vs CAR — 1280x720 Broadcast HD Rescale + Telestrator",
+      "split": "test",
+      "game": "NO vs CAR",
+      "broadcaster": "NFL_All22",
+      "camera_angle": "all22_high_sideline",
+      "base_image_path": "/home/user/image-search/nfl-all-22-film-pre-snap-formation-offen-5.png",
+      "transform": "resize_1280x720",
+      "x_start_yd": 80.0,
+      "expected_calibratable": true,
+      "conditions": ["sideline_absent", "telestrator_overlay", "different_resolution"]
+    },
+    {
+      "frame_id": "sf_10_sea_sf_sideline_cropped",
+      "title": "SEA vs SF — Far Sideline Masked / Partial Field Visibility",
+      "split": "test",
+      "game": "SEA vs SF",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
+      "transform": "mask_far_sideline",
+      "x_start_yd": 15.0,
+      "expected_calibratable": true,
+      "conditions": ["sideline_absent", "partial_field_visibility", "virtual_los"],
+      "week1_title": "Frame 1 (SEA vs SF — FOX Broadcast)"
+    },
+    {
+      "frame_id": "sf_11_endzone_tight_view_uncalibratable",
+      "title": "End-Zone / Tight View Pre-Snap (800x450 — < 3 Yard Lines)",
+      "split": "test",
+      "game": "Broadcast_Endzone_1",
+      "broadcaster": "CBS_Style",
+      "camera_angle": "endzone_tight",
+      "base_image_path": "/home/user/image-search/nfl-broadcast-camera-view-sideline-pre-s-1.jpg",
+      "transform": "none",
+      "x_start_yd": 20.0,
+      "expected_calibratable": false,
+      "conditions": ["different_camera_angle", "partial_field_visibility"]
+    },
+    {
+      "frame_id": "sf_12_heavy_occlusion_both_hashes_blocked",
+      "title": "SEA vs SF — Heavy Midfield Pileup Occluding Both Hash Rows",
+      "split": "test",
+      "game": "SEA vs SF",
+      "broadcaster": "FOX",
+      "camera_angle": "broadcast_sideline",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
+      "transform": "occlude_both_hash_rows",
+      "x_start_yd": 15.0,
+      "expected_calibratable": false,
+      "conditions": ["heavy_player_occlusion", "partial_field_visibility"]
+    }
+  ],
+  "temporal_sequences": [
+    {
+      "sequence_id": "seq_01_camera_pan",
+      "title": "Smooth Camera Pan (12 frames)",
+      "split": "val",
+      "stress_type": "camera_pan",
+      "num_frames": 12,
+      "expected_refused_frames": 0
+    },
+    {
+      "sequence_id": "seq_02_camera_zoom",
+      "title": "Progressive Camera Zoom (12 frames)",
+      "split": "val",
+      "stress_type": "camera_zoom",
+      "num_frames": 12,
+      "expected_refused_frames": 0
+    },
+    {
+      "sequence_id": "seq_03_short_line_dropout",
+      "title": "Short Loss of Visible Yard Lines + Recovery (12 frames)",
+      "split": "test",
+      "stress_type": "short_line_dropout",
+      "num_frames": 12,
+      "expected_refused_frames": 1
+    },
+    {
+      "sequence_id": "seq_04_prolonged_dropout_expiration",
+      "title": "Prolonged Landmark Dropout -> Confidence Expiration (12 frames)",
+      "split": "test",
+      "stress_type": "prolonged_dropout",
+      "num_frames": 12,
+      "expected_refused_frames": 10
+    },
+    {
+      "sequence_id": "seq_05_camera_cut_and_recovery",
+      "title": "Camera Cut to Graphic & Recovery on New Angle (12 frames)",
+      "split": "test",
+      "stress_type": "camera_cut",
+      "num_frames": 12,
+      "expected_refused_frames": 6
+    },
+    {
+      "sequence_id": "seq_06_optical_flow_failure",
+      "title": "Severe Motion Blur / Optical-Flow Failure & Recovery (12 frames)",
+      "split": "test",
+      "stress_type": "optical_flow_failure",
+      "num_frames": 12,
+      "expected_refused_frames": 7
+    },
+    {
+      "sequence_id": "seq_07_large_global_motion",
+      "title": "Fast Whip-Pan / Large Global Field Motion (12 frames)",
+      "split": "test",
+      "stress_type": "large_global_motion",
+      "num_frames": 12,
+      "expected_refused_frames": 3
+    },
+    {
+      "sequence_id": "seq_08_player_heavy_occlusion",
+      "title": "Player-Heavy Scrum Occlusion Across Hash Rows (12 frames)",
+      "split": "test",
+      "stress_type": "player_heavy_occlusion",
+      "num_frames": 12,
+      "expected_refused_frames": 7
+    }
+  ]
+}
