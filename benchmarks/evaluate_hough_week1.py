@@ -11,11 +11,17 @@ Evaluates:
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from typing import Any, Dict, List, Tuple, Union
 import cv2
 import numpy as np
 
-from hough_calibrate import (
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from football_vision import (
     FIELD_WIDTH_YD,
     Y_NEAR_HASH_YD,
     Y_FAR_HASH_YD,
@@ -25,62 +31,42 @@ from hough_calibrate import (
     Y_FAR_NUM_OUTER_YD,
     naive_canny_hough,
     calibrate_frame,
-    detect_and_project_players,
 )
+from experimental.cpu_blob_detector import detect_and_project_players
 
-# ---------------------------------------------------------------------------
-# Held-out Ground-Truth Landmarks (measured directly from image intensity edges,
-# NEVER used by the Hash-Row + VP-Pencil homography fit when use_sideline_if_visible=False).
-# Each entry is: (label, X_yd, Y_yd, true_v_px_along_yard_line)
-# ---------------------------------------------------------------------------
-HELD_OUT_LANDMARKS = {
-    "Frame 1 (SEA vs SF — FOX Broadcast)": [
-        # Far sideline (Y = 53.3333 yd) at X = 15, 20, 25, 30, 35 yd
-        ("Sideline @ 15-yd", 15.0, FIELD_WIDTH_YD, 85.0),
-        ("Sideline @ 20-yd", 20.0, FIELD_WIDTH_YD, 85.5),
-        ("Sideline @ 25-yd", 25.0, FIELD_WIDTH_YD, 85.5),
-        ("Sideline @ 30-yd", 30.0, FIELD_WIDTH_YD, 84.5),
-        ("Sideline @ 35-yd", 35.0, FIELD_WIDTH_YD, 83.5),
-        # Far numbers outer/inner edges (Y = 41.3333, 39.3333 yd) at 20 and 30 yd lines
-        ("Far '20' outer (41.33 yd)", 20.0, Y_FAR_NUM_OUTER_YD, 161.0),
-        ("Far '20' inner (39.33 yd)", 20.0, Y_FAR_NUM_INNER_YD, 174.0),
-        ("Far '30' outer (41.33 yd)", 30.0, Y_FAR_NUM_OUTER_YD, 160.0),
-        ("Far '30' inner (39.33 yd)", 30.0, Y_FAR_NUM_INNER_YD, 173.0),
-    ],
-    "Frame 2 (NYJ vs JAX — Midfield Logo, No Full Sideline)": [
-        # Far sideline visible on left half of frame (X = 50, 55, 60 yd)
-        ("Sideline @ 50-yd", 50.0, FIELD_WIDTH_YD, 16.5),
-        ("Sideline @ 45-yd", 55.0, FIELD_WIDTH_YD, 16.0),
-        ("Sideline @ 40-yd", 60.0, FIELD_WIDTH_YD, 15.0),
-        # Far numbers '50', '40', '30' (X = 50, 60, 70 yd)
-        ("Far '50' outer (41.33 yd)", 50.0, Y_FAR_NUM_OUTER_YD, 101.0),
-        ("Far '50' inner (39.33 yd)", 50.0, Y_FAR_NUM_INNER_YD, 117.0),
-        ("Far '40' outer (41.33 yd)", 60.0, Y_FAR_NUM_OUTER_YD, 94.0),
-        ("Far '40' inner (39.33 yd)", 60.0, Y_FAR_NUM_INNER_YD, 110.0),
-        ("Far '30' outer (41.33 yd)", 70.0, Y_FAR_NUM_OUTER_YD, 84.0),
-        ("Far '30' inner (39.33 yd)", 70.0, Y_FAR_NUM_INNER_YD, 100.0),
-        # Near numbers '50', '40', '30' (X = 50, 60, 70 yd)
-        ("Near '50' inner (14.0 yd)", 50.0, Y_NEAR_NUM_INNER_YD, 367.0),
-        ("Near '50' outer (12.0 yd)", 50.0, Y_NEAR_NUM_OUTER_YD, 397.0),
-        ("Near '40' inner (14.0 yd)", 60.0, Y_NEAR_NUM_INNER_YD, 350.0),
-        ("Near '40' outer (12.0 yd)", 60.0, Y_NEAR_NUM_OUTER_YD, 378.0),
-        ("Near '30' inner (14.0 yd)", 70.0, Y_NEAR_NUM_INNER_YD, 340.0),
-        ("Near '30' outer (12.0 yd)", 70.0, Y_NEAR_NUM_OUTER_YD, 365.0),
-    ],
-    "Frame 3 (NO vs CAR — All-22 Oblique + Telestrator)": [
-        # Far '10' number outer/inner edges on the 10-yard line (X = 90 yd)
-        ("Far '10' outer (41.33 yd)", 90.0, Y_FAR_NUM_OUTER_YD, 164.0),
-        ("Far '10' inner (39.33 yd)", 90.0, Y_FAR_NUM_INNER_YD, 204.0),
-    ],
-}
+MANIFEST_PATH = ROOT / "data" / "benchmarks" / "week1_held_out_landmarks.json"
 
 
-def evaluate_held_out(cal, landmarks):
+def load_week1_manifest(manifest_path: Path = MANIFEST_PATH) -> Dict[str, Any]:
+    """Load the externalized Week-1 held-out landmark manifest."""
+    return json.loads(manifest_path.read_text(encoding="utf-8"))
+
+
+def get_held_out_landmarks_map(manifest_path: Path = MANIFEST_PATH) -> Dict[str, List[Tuple[str, float, float, float]]]:
+    """Return mapping of frame title -> [(label, x_yd, y_yd, true_v_px), ...]."""
+    manifest = load_week1_manifest(manifest_path)
+    out: Dict[str, List[Tuple[str, float, float, float]]] = {}
+    for f in manifest["frames"]:
+        out[f["title"]] = [
+            (lm["label"], float(lm["x_yd"]), float(lm["y_yd"]), float(lm["true_v_px"]))
+            for lm in f["held_out_landmarks"]
+        ]
+    return out
+
+
+HELD_OUT_LANDMARKS = get_held_out_landmarks_map()
+
+
+def evaluate_held_out(cal, landmarks: List[Union[Tuple[str, float, float, float], Dict[str, Any]]]) -> Dict[str, Any]:
     """Evaluate pixel and yard error on held-out landmarks along their respective yard lines."""
     px_errs = []
     yd_errs = []
     details = []
-    for label, x_yd, y_yd, v_true in landmarks:
+    for item in landmarks:
+        if isinstance(item, dict):
+            label, x_yd, y_yd, v_true = item["label"], float(item["x_yd"]), float(item["y_yd"]), float(item["true_v_px"])
+        else:
+            label, x_yd, y_yd, v_true = item
         # Predicted image point (u_pred, v_pred) for field point (x_yd, y_yd)
         pt_img = cv2.perspectiveTransform(np.float32([[[x_yd, y_yd]]]), cal.H_inv)[0, 0]
         u_pred, v_pred = float(pt_img[0]), float(pt_img[1])
@@ -192,34 +178,20 @@ def draw_top_down_radar(
 
 
 def main():
-    out_dir = Path("/home/user/Football-Vision/outputs")
+    out_dir = ROOT / "outputs"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    frames_cfg = [
-        (
-            "Frame 1 (SEA vs SF — FOX Broadcast)",
-            "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
-            15.0,
-            (10.0, 40.0),
-        ),
-        (
-            "Frame 2 (NYJ vs JAX — Midfield Logo, No Full Sideline)",
-            "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-4.jpg",
-            50.0,
-            (45.0, 80.0),
-        ),
-        (
-            "Frame 3 (NO vs CAR — All-22 Oblique + Telestrator)",
-            "/home/user/image-search/nfl-all-22-film-pre-snap-formation-offen-5.png",
-            80.0,
-            (75.0, 105.0),
-        ),
-    ]
-
+    manifest = load_week1_manifest()
     summary = {"frames": {}}
     panel_rows = []
 
-    for title, path, x_start_yd, x_span_yd in frames_cfg:
+    for frame_entry in manifest["frames"]:
+        title = frame_entry["title"]
+        path = frame_entry["image_path"]
+        x_start_yd = float(frame_entry["x_start_yd"])
+        x_span_yd = (float(frame_entry["x_span_yd"][0]), float(frame_entry["x_span_yd"][1]))
+        landmarks = HELD_OUT_LANDMARKS[title]
+
         img = cv2.imread(path)
         h, w = img.shape[:2]
 
@@ -228,7 +200,6 @@ def main():
         vis_naive = img.copy()
         for x1, y1, x2, y2 in naive_segs:
             dx, dy = x2 - x1, y2 - y1
-            # Color horizontal-ish segments red (showing scorebug/clutter) and vertical-ish segments cyan
             col = (0, 0, 255) if abs(dy) < 0.5 * abs(dx) else (255, 220, 0)
             cv2.line(vis_naive, (x1, y1), (x2, y2), col, 2, cv2.LINE_AA)
 
@@ -237,11 +208,11 @@ def main():
         cal_bug185 = calibrate_frame(img, x_start_yd=x_start_yd, use_centroid_hash_coords=False, use_sideline_if_visible=False)
         cal_with_side = calibrate_frame(img, x_start_yd=x_start_yd, use_centroid_hash_coords=True, use_sideline_if_visible=True)
 
-        held_out_centroid = evaluate_held_out(cal_centroid, HELD_OUT_LANDMARKS[title])
-        held_out_bug185 = evaluate_held_out(cal_bug185, HELD_OUT_LANDMARKS[title])
-        held_out_with_side = evaluate_held_out(cal_with_side, HELD_OUT_LANDMARKS[title])
+        held_out_centroid = evaluate_held_out(cal_centroid, landmarks)
+        held_out_bug185 = evaluate_held_out(cal_bug185, landmarks)
+        held_out_with_side = evaluate_held_out(cal_with_side, landmarks)
 
-        # 3. Player detection + K-Means team assignment + Alex's plausibility checks
+        # 3. Player detection + K-Means team assignment + Alex's plausibility checks (isolated in experimental/)
         players, checks = detect_and_project_players(img, cal_with_side.H, x_span_yd)
 
         # Render calibrated reprojection overlay + detected players
@@ -282,7 +253,6 @@ def main():
 
         radar = draw_top_down_radar(cal_with_side, players, x_start_yd, x_span_yd, width_px=560, height_px=340)
 
-        # Resize all 3 panels to 560x340 and stack horizontally with clean titles
         p_naive = cv2.resize(vis_naive, (560, 340), interpolation=cv2.INTER_AREA)
         p_cal = cv2.resize(vis_cal, (560, 340), interpolation=cv2.INTER_AREA)
 

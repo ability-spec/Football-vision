@@ -1,0 +1,25 @@
+# Generated benchmark / visualization artifacts
+outputs/
+
+# Model weights & TensorRT engines
+*.pt
+*.onnx
+*.engine
+CV_Models/
+
+# Raw media
+*.mp4
+*.mov
+*.avi
+
+# Python bytecode & packaging caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+build/
+dist/

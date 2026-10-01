@@ -1,0 +1,65 @@
+{
+  "benchmark_version": "week1_v1",
+  "description": "26 independent held-out ground-truth sideline and yard-number landmarks across 3 real NFL frames (measured directly from image intensity edges; never used by the Hash-Row + VP-Pencil homography fit).",
+  "frames": [
+    {
+      "title": "Frame 1 (SEA vs SF — FOX Broadcast)",
+      "split": "val",
+      "image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
+      "x_start_yd": 15.0,
+      "x_span_yd": [10.0, 40.0],
+      "expected_yard_lines": 5,
+      "expected_ten_yard_parity": 1,
+      "held_out_landmarks": [
+        {"label": "Sideline @ 15-yd", "x_yd": 15.0, "y_yd": 53.333333333333336, "true_v_px": 85.0},
+        {"label": "Sideline @ 20-yd", "x_yd": 20.0, "y_yd": 53.333333333333336, "true_v_px": 85.5},
+        {"label": "Sideline @ 25-yd", "x_yd": 25.0, "y_yd": 53.333333333333336, "true_v_px": 85.5},
+        {"label": "Sideline @ 30-yd", "x_yd": 30.0, "y_yd": 53.333333333333336, "true_v_px": 84.5},
+        {"label": "Sideline @ 35-yd", "x_yd": 35.0, "y_yd": 53.333333333333336, "true_v_px": 83.5},
+        {"label": "Far '20' outer (41.33 yd)", "x_yd": 20.0, "y_yd": 41.333333333333336, "true_v_px": 161.0},
+        {"label": "Far '20' inner (39.33 yd)", "x_yd": 20.0, "y_yd": 39.333333333333336, "true_v_px": 174.0},
+        {"label": "Far '30' outer (41.33 yd)", "x_yd": 30.0, "y_yd": 41.333333333333336, "true_v_px": 160.0},
+        {"label": "Far '30' inner (39.33 yd)", "x_yd": 30.0, "y_yd": 39.333333333333336, "true_v_px": 173.0}
+      ]
+    },
+    {
+      "title": "Frame 2 (NYJ vs JAX — Midfield Logo, No Full Sideline)",
+      "split": "val",
+      "image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-4.jpg",
+      "x_start_yd": 50.0,
+      "x_span_yd": [45.0, 80.0],
+      "expected_yard_lines": 6,
+      "expected_ten_yard_parity": 0,
+      "held_out_landmarks": [
+        {"label": "Sideline @ 50-yd", "x_yd": 50.0, "y_yd": 53.333333333333336, "true_v_px": 16.5},
+        {"label": "Sideline @ 45-yd", "x_yd": 55.0, "y_yd": 53.333333333333336, "true_v_px": 16.0},
+        {"label": "Sideline @ 40-yd", "x_yd": 60.0, "y_yd": 53.333333333333336, "true_v_px": 15.0},
+        {"label": "Far '50' outer (41.33 yd)", "x_yd": 50.0, "y_yd": 41.333333333333336, "true_v_px": 101.0},
+        {"label": "Far '50' inner (39.33 yd)", "x_yd": 50.0, "y_yd": 39.333333333333336, "true_v_px": 117.0},
+        {"label": "Far '40' outer (41.33 yd)", "x_yd": 60.0, "y_yd": 41.333333333333336, "true_v_px": 94.0},
+        {"label": "Far '40' inner (39.33 yd)", "x_yd": 60.0, "y_yd": 39.333333333333336, "true_v_px": 110.0},
+        {"label": "Far '30' outer (41.33 yd)", "x_yd": 70.0, "y_yd": 41.333333333333336, "true_v_px": 84.0},
+        {"label": "Far '30' inner (39.33 yd)", "x_yd": 70.0, "y_yd": 39.333333333333336, "true_v_px": 100.0},
+        {"label": "Near '50' inner (14.0 yd)", "x_yd": 50.0, "y_yd": 14.0, "true_v_px": 367.0},
+        {"label": "Near '50' outer (12.0 yd)", "x_yd": 50.0, "y_yd": 12.0, "true_v_px": 397.0},
+        {"label": "Near '40' inner (14.0 yd)", "x_yd": 60.0, "y_yd": 14.0, "true_v_px": 350.0},
+        {"label": "Near '40' outer (12.0 yd)", "x_yd": 60.0, "y_yd": 12.0, "true_v_px": 378.0},
+        {"label": "Near '30' inner (14.0 yd)", "x_yd": 70.0, "y_yd": 14.0, "true_v_px": 340.0},
+        {"label": "Near '30' outer (12.0 yd)", "x_yd": 70.0, "y_yd": 12.0, "true_v_px": 365.0}
+      ]
+    },
+    {
+      "title": "Frame 3 (NO vs CAR — All-22 Oblique + Telestrator)",
+      "split": "val",
+      "image_path": "/home/user/image-search/nfl-all-22-film-pre-snap-formation-offen-5.png",
+      "x_start_yd": 80.0,
+      "x_span_yd": [75.0, 105.0],
+      "expected_yard_lines": 5,
+      "expected_ten_yard_parity": 0,
+      "held_out_landmarks": [
+        {"label": "Far '10' outer (41.33 yd)", "x_yd": 90.0, "y_yd": 41.333333333333336, "true_v_px": 164.0},
+        {"label": "Far '10' inner (39.33 yd)", "x_yd": 90.0, "y_yd": 39.333333333333336, "true_v_px": 204.0}
+      ]
+    }
+  ]
+}
