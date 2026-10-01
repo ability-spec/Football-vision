@@ -1,6 +1,16 @@
 {
   "manifest_version": "phase3_v1",
   "description": "Phase 3 player detection, footpoint reliability, team assignment, multi-object tracking, and field projection benchmark manifest with strict train/val/test split separation. Zero thresholds are tuned on TEST.",
+  "benchmark_provenance_and_semantics": {
+    "controlled_sequences_detector": "FixturePlayerDetector (fixture_detector_v1) — synthetic bounding-box fixture harness used strictly to evaluate downstream footpoint gating, torso cluster assignment, multi-object tracking, and field projection under controlled dropouts. Fixture pass-through precision/recall/F1 must NOT be interpreted as image-based player detector accuracy.",
+    "real_nfl_frames_detector": "TurfContrastPlayerDetector (turf_contrast_baseline_v1) — evaluated on 4 real NFL single frames (rf_01..rf_04) strictly as an unannotated end-to-end integration/smoke test and projection refusal-gate audit (quantitative detection/team/tracking/position accuracy unmeasured on rf_01..rf_04).",
+    "team_metric_semantics": "Permutation-invariant binary torso appearance/luminance cluster assignment accuracy (TEAM_A = darker/lower-L centroid, TEAM_B = lighter/higher-L centroid). Does NOT represent home/away, offense/defense, or real NFL franchise identity.",
+    "idsw_and_frag_semantics": "CLEAR-MOTA lifetime identity convention: a ground-truth object re-associated to a newly initialized track_id after a dropout exceeding max_missed_frames=3 increments both track_fragmentations (FRAG) and lifetime id_switches (IDSW). Active-track association swaps (active_swap_idsw) and post-expiration reinitialization switches (post_expiry_reinit_idsw) are reported separately.",
+    "statistical_scope_limitations": [
+      "60 controlled sequence frames + 4 real NFL frames constitute a Phase-3 engineering verification benchmark, not evidence of broad NFL generalization.",
+      "100% short-occlusion recovery rate is based on 2/2 events in VAL and 1/1 event in TEST and must not be presented as statistically robust."
+    ]
+  },
   "split_protocol": {
     "train": "Used for baseline detector morphology and tracker association parameter selection.",
     "val": "Used for verifying footpoint unreliability flags, short-occlusion bridging, and team margin thresholds.",

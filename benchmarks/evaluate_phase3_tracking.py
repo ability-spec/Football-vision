@@ -469,15 +469,21 @@ def run_phase3_benchmark() -> Dict[str, Any]:
             "title": seq_cfg["title"],
             "split": sp,
             "scenario": scenario,
+            "detector_implementation": detector.detector_name,
+            "detector_source_type": detector.source_type,
+            "detection_metric_provenance": "fixture_input_pass_through_not_image_detector_accuracy",
             "num_frames": n_frames,
             "detection_precision": round(prec, 4),
             "detection_recall": round(rec, 4),
             "detection_f1": round(f1, 4),
             "id_switches": seq_idsw,
+            "active_association_swap_idsw": 0,
+            "post_expiration_reinit_idsw": seq_idsw,
             "track_fragmentations": seq_frag,
             "short_occlusion_events": short_occ_total,
             "short_occlusion_recovered": seq_occ_rec,
             "team_accuracy": round(seq_team_ok / max(1, seq_team_tot), 4),
+            "permutation_invariant_cluster_accuracy": round(seq_team_ok / max(1, seq_team_tot), 4),
             "unknown_abstention_accuracy": round(seq_unk_ok / max(1, seq_unk_tot), 4) if seq_unk_tot > 0 else None,
             "median_footpoint_err_reliable_px": round(float(np.median(seq_fp_err_rel)), 3) if seq_fp_err_rel else None,
             "median_footpoint_err_unreliable_px": round(float(np.median(seq_fp_err_unrel)), 3) if seq_fp_err_unrel else None,
@@ -496,6 +502,12 @@ def run_phase3_benchmark() -> Dict[str, Any]:
         occ_ev = acc["short_occ_events"]
         occ_rec = acc["short_occ_recovered"]
         split_summaries[sp] = {
+            "detector_implementation": "FixturePlayerDetector (fixture_detector_v1)",
+            "image_detector_quantitative_metrics": None,
+            "detection_metric_semantics": (
+                "Fixture input pass-through / scheduled dropout statistics for downstream tracking harness; "
+                "NOT image-based TurfContrastPlayerDetector detection accuracy."
+            ),
             "detection_precision": round(prec, 4),
             "detection_recall": round(rec, 4),
             "detection_f1": round(f1, 4),
@@ -503,11 +515,19 @@ def run_phase3_benchmark() -> Dict[str, Any]:
             "fp": fp,
             "fn": fn,
             "id_switches": acc["id_switches"],
+            "active_association_swap_idsw": 0,
+            "post_expiration_reinit_idsw": acc["id_switches"],
             "track_fragmentations": acc["track_fragmentations"],
             "short_occlusion_events": occ_ev,
             "short_occlusion_recovered": occ_rec,
             "short_occlusion_recovery_rate": round(occ_rec / max(1, occ_ev), 4) if occ_ev > 0 else None,
             "team_accuracy": round(acc["team_correct"] / max(1, acc["team_total"]), 4),
+            "permutation_invariant_cluster_accuracy": round(acc["team_correct"] / max(1, acc["team_total"]), 4),
+            "team_metric_semantics": (
+                "Permutation-invariant binary torso luminance/color cluster assignment accuracy "
+                "(TEAM_A=darker/lower-L centroid, TEAM_B=lighter/higher-L centroid); does not imply "
+                "home/away, offense/defense, or real NFL team identity."
+            ),
             "unknown_abstention_accuracy": (
                 round(acc["unknown_correct"] / max(1, acc["unknown_total"]), 4)
                 if acc["unknown_total"] > 0
@@ -592,6 +612,9 @@ def run_phase3_benchmark() -> Dict[str, Any]:
         real_frame_audit.append({
             "frame_id": rf_id,
             "split": rf_split,
+            "detector_implementation": bg_detector.detector_name,
+            "evaluation_scope": "end_to_end_smoke_test_and_refusal_gate_audit_only_no_ground_truth_labels",
+            "quantitative_ground_truth_available": False,
             "calibration_success": cal.success,
             "x_coord_mode": cal.x_coord_mode,
             "detections_count": len(dets),
@@ -709,6 +732,43 @@ def run_phase3_benchmark() -> Dict[str, Any]:
     report = {
         "benchmark_version": "phase3_v1",
         "calibration_layer_modified": False,
+        "benchmark_integrity_audit": {
+            "detector_provenance": {
+                "controlled_sequences_train_val_test": "FixturePlayerDetector (fixture_detector_v1) — synthetic box fixture harness for tracking/footpoint/cluster/projection evaluation; NOT an image detector benchmark.",
+                "real_nfl_frames_val_test": "TurfContrastPlayerDetector (turf_contrast_baseline_v1) — end-to-end integration/smoke test and projection refusal-gate audit only; quantitative detection precision/recall/F1 unmeasured.",
+            },
+            "team_metric_semantics": (
+                "Permutation-invariant binary torso luminance/color cluster assignment accuracy "
+                "(TEAM_A = darker/lower-L centroid, TEAM_B = lighter/higher-L centroid). "
+                "Does NOT imply home/away, offense/defense, or real NFL team identity."
+            ),
+            "tracking_idsw_audit": {
+                "formal_definition": (
+                    "CLEAR-MOTA lifetime identity convention: when a ground-truth object (gid) is matched "
+                    "to an observed track (missed_frames == 0) with IoU >= 0.50, if last_assigned_trk_id[gid] "
+                    "differs from best_trk.track_id, id_switches (IDSW) increments by 1; if was_matched_prev_frame[gid] "
+                    "was False, track_fragmentations (FRAG) increments by 1."
+                ),
+                "test_idsw_1_classification": (
+                    "Both IDSW (+1) and FRAG (+1) under the evaluator's lifetime identity definition: "
+                    "in trk_seq_06_test_prolonged_occlusion_and_false_alarm, gid=3 drops out for 5 frames "
+                    "(t=2..6 > max_missed_frames=3), causing track_id=3 to expire at t=5 and re-initialize "
+                    "as track_id=8 at t=7. Active association-swap IDSW is 0; post-expiration reinitialization IDSW is 1."
+                ),
+                "active_association_swap_idsw_total": 0,
+                "post_expiration_reinit_idsw_total": 1,
+            },
+            "real_frame_validation_scope": {
+                "detection": "smoke_test_count_and_runtime_only_no_ground_truth_boxes",
+                "team_classification": "smoke_test_cluster_partition_count_only_no_ground_truth_labels",
+                "tracking": "single_frame_initialization_smoke_test_only_no_temporal_association",
+                "projection": "quantitative_refusal_gate_and_zero_fabrication_check_only_no_ground_truth_field_coords",
+            },
+            "benchmark_scope_limitations": [
+                "60 sequence frames + 4 real NFL frames constitute a Phase-3 engineering benchmark, not evidence of broad NFL generalization.",
+                "100% short-occlusion recovery rate is based on 2/2 events in VAL and 1/1 event in TEST and must not be presented as statistically robust.",
+            ],
+        },
         "splits": split_summaries,
         "sequences": sequence_reports,
         "real_nfl_frame_audit": real_frame_audit,
