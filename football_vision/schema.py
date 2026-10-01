@@ -1,4 +1,4 @@
-"""Canonical data contracts and schemas for Football-Vision (Phase 0 / Phase 16A).
+"""Canonical data contracts and schemas for Football-Vision (Phase 0 / Phase 1 / Phase 16A).
 
 Defines standardized, serializable records across calibration, detection, tracking,
 identity, field projection, trajectories, and play analytics so every subsystem
@@ -8,16 +8,34 @@ preserves provenance and explicit confidence/uncertainty.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
+import cv2
 import numpy as np
+
+from football_vision.field_spec import (
+    MIN_CALIBRATION_CONFIDENCE,
+    VALID_METRICS_BY_X_COORD_MODE,
+)
 
 XCoordMode = Literal["absolute", "relative_10yd", "relative_5yd", "uncalibrated"]
 ObservationState = Literal["detected", "tracked", "projected", "inferred", "unknown"]
+CalibrationFailureMode = Literal[
+    "invalid_image",
+    "no_hough_lines",
+    "insufficient_yard_lines",
+    "insufficient_hash_ticks",
+    "missing_hash_rows",
+    "homography_solve_failed",
+    "implausible_homography",
+    "insufficient_confidence",
+    "camera_cut_uncalibrated",
+    "confidence_expired",
+]
 
 
 @dataclass
 class CalibrationResult:
-    """Standardized output of the Field Calibration Engine."""
+    """Standardized output of the Phase 1 Field Calibration Engine."""
 
     success: bool
     H: Optional[np.ndarray]                       # 3x3 image (u,v) -> field (X_yd, Y_yd)
@@ -41,11 +59,102 @@ class CalibrationResult:
     notes: List[str] = field(default_factory=list)
     image_size: Optional[Tuple[int, int]] = None    # (width_px, height_px)
     confidence: float = 0.0
+    confidence_components: Dict[str, float] = field(default_factory=dict)
     x_coord_mode: XCoordMode = "uncalibrated"
     failure_reason: Optional[str] = None
+    is_temporally_propagated: bool = False
+    propagation_age: int = 0
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def vanishing_point(self) -> Optional[Tuple[float, float]]:
+        """Alias for vp_yard matching the Phase 1 CalibrationResult specification."""
+        return self.vp_yard
+
+    @property
+    def hash_marks(self) -> Dict[str, Any]:
+        """Structured view of detected hash rows and inlier/candidate tick arrays."""
+        return {
+            "far_hash_row": self.far_hash_row,
+            "near_hash_row": self.near_hash_row,
+            "inliers": self.hash_tick_inliers,
+            "candidates": self.hash_tick_candidates,
+            "rmse_px": None if np.isnan(self.hash_row_rmse_px) else float(self.hash_row_rmse_px),
+        }
+
+    @property
+    def sidelines(self) -> Dict[str, Any]:
+        """Structured view of detected sidelines."""
+        return {"far_sideline": self.far_sideline}
+
+    @property
+    def field_homography(self) -> Optional[np.ndarray]:
+        """Alias for H (image (u,v) -> field (X_yd, Y_yd))."""
+        return self.H
+
+    @property
+    def residuals(self) -> Dict[str, Optional[float]]:
+        """In-sample geometric fit residuals in pixels."""
+        return {
+            "ridge_orth_median_px": None if np.isnan(self.ridge_orth_median_px) else float(self.ridge_orth_median_px),
+            "ridge_orth_mean_px": None if np.isnan(self.ridge_orth_mean_px) else float(self.ridge_orth_mean_px),
+            "hash_row_rmse_px": None if np.isnan(self.hash_row_rmse_px) else float(self.hash_row_rmse_px),
+        }
+
+    @property
+    def valid_metrics(self) -> Tuple[str, ...]:
+        """Return tuple of downstream analytics metrics valid under this result's coordinate mode."""
+        if not self.can_project():
+            return ()
+        return VALID_METRICS_BY_X_COORD_MODE.get(self.x_coord_mode, ())
+
+    def can_project(self, min_confidence: float = MIN_CALIBRATION_CONFIDENCE) -> bool:
+        """Return True iff calibration succeeded, H is valid, and confidence >= min_confidence."""
+        return bool(
+            self.success
+            and self.H is not None
+            and self.H_inv is not None
+            and self.plausible_orientation_scale
+            and self.x_coord_mode != "uncalibrated"
+            and self.confidence >= min_confidence
+        )
+
+    def image_to_field(
+        self,
+        pts_uv: Union[Sequence[Sequence[float]], np.ndarray],
+        min_confidence: float = MIN_CALIBRATION_CONFIDENCE,
+    ) -> Optional[np.ndarray]:
+        """Project image pixel coordinates (N, 2) -> field coordinates (N, 2) in yards.
+
+        Refuses projection (returns None) if calibration failed or confidence < min_confidence.
+        """
+        if not self.can_project(min_confidence=min_confidence):
+            return None
+        arr = np.asarray(pts_uv, dtype=np.float32).reshape(-1, 1, 2)
+        if arr.size == 0:
+            return np.zeros((0, 2), dtype=np.float64)
+        proj = cv2.perspectiveTransform(arr, self.H).reshape(-1, 2)
+        return proj.astype(np.float64)
+
+    def field_to_image(
+        self,
+        pts_xy_yd: Union[Sequence[Sequence[float]], np.ndarray],
+        min_confidence: float = MIN_CALIBRATION_CONFIDENCE,
+    ) -> Optional[np.ndarray]:
+        """Reproject field coordinates (N, 2) in yards -> image pixel coordinates (N, 2).
+
+        Refuses reprojection (returns None) if calibration failed or confidence < min_confidence.
+        """
+        if not self.can_project(min_confidence=min_confidence):
+            return None
+        arr = np.asarray(pts_xy_yd, dtype=np.float32).reshape(-1, 1, 2)
+        if arr.size == 0:
+            return np.zeros((0, 2), dtype=np.float64)
+        proj = cv2.perspectiveTransform(arr, self.H_inv).reshape(-1, 2)
+        return proj.astype(np.float64)
 
     def to_dict(self) -> Dict[str, Any]:
-        """Serialize calibration metadata and residuals to a JSON-compatible dictionary."""
+        """Serialize calibration metadata, confidence, and residuals to a JSON-compatible dictionary."""
         return {
             "success": self.success,
             "image_size": list(self.image_size) if self.image_size is not None else None,
@@ -58,6 +167,7 @@ class CalibrationResult:
             "hash_tick_inliers_count": int(len(self.hash_tick_inliers)) if self.hash_tick_inliers is not None else 0,
             "hash_tick_candidates_count": int(len(self.hash_tick_candidates)) if self.hash_tick_candidates is not None else 0,
             "ridge_pixel_count": self.ridge_pixel_count,
+            "residuals": self.residuals,
             "ridge_orth_median_px": None if np.isnan(self.ridge_orth_median_px) else float(self.ridge_orth_median_px),
             "ridge_orth_mean_px": None if np.isnan(self.ridge_orth_mean_px) else float(self.ridge_orth_mean_px),
             "hash_row_rmse_px": None if np.isnan(self.hash_row_rmse_px) else float(self.hash_row_rmse_px),
@@ -66,8 +176,13 @@ class CalibrationResult:
             "detected_ten_yard_parity": self.detected_ten_yard_parity,
             "plausible_orientation_scale": self.plausible_orientation_scale,
             "confidence": float(self.confidence),
+            "confidence_components": dict(self.confidence_components),
             "x_coord_mode": self.x_coord_mode,
+            "valid_metrics": list(self.valid_metrics),
             "failure_reason": self.failure_reason,
+            "is_temporally_propagated": self.is_temporally_propagated,
+            "propagation_age": self.propagation_age,
+            "diagnostics": dict(self.diagnostics),
             "runtime_ms": float(self.runtime_ms),
             "notes": list(self.notes),
         }

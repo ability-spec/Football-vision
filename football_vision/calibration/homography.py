@@ -1,5 +1,5 @@
 """Stage 4: Projective cross-ratio control-point conditioning, homography fitting, parity detection,
-and physical plausibility checks.
+explicit confidence/failure handling, and physical plausibility checks.
 
 Adapted in part from Alex R. Haigh's Hockey-Vision (Apache-2.0):
   - plausible_homography(), players_clustered(), implied_player_height_ft()
@@ -8,7 +8,7 @@ Adapted in part from Alex R. Haigh's Hockey-Vision (Apache-2.0):
 from __future__ import annotations
 
 import time
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 import cv2
 import numpy as np
 
@@ -21,12 +21,71 @@ from football_vision.field_spec import (
     MIN_PLAYER_SPREAD_YD,
     MIN_PLAYERS_FOR_SPREAD,
     MIN_PLAYERS_FOR_HEIGHT,
+    MIN_CALIBRATION_CONFIDENCE,
+    PARITY_MIN_SCORE,
+    PARITY_MIN_RATIO,
 )
-from football_vision.schema import CalibrationResult
+from football_vision.schema import CalibrationResult, XCoordMode
 from football_vision.calibration.white_ridge import extract_white_paint_ridge
 from football_vision.calibration.yard_lines import detect_yard_lines_and_vp
 from football_vision.calibration.hash_marks import detect_hash_rows_guided
 from football_vision.calibration.sidelines import detect_far_sideline
+
+
+def compute_calibration_confidence(
+    n_yard_lines: int,
+    ridge_orth_median_px: float,
+    n_hash_inliers: int,
+    hash_row_rmse_px: float,
+) -> Tuple[float, Dict[str, float]]:
+    """Compute geometric calibration confidence in [0.0, 1.0] and its four component scores."""
+    if (
+        n_yard_lines < 3
+        or n_hash_inliers < 10
+        or np.isnan(ridge_orth_median_px)
+        or np.isnan(hash_row_rmse_px)
+    ):
+        return 0.0, {
+            "line_support": 0.0,
+            "ridge_residual": 0.0,
+            "hash_support": 0.0,
+            "hash_residual": 0.0,
+        }
+
+    s_lines = float(np.clip((n_yard_lines - 2) / 3.0, 0.0, 1.0))
+    s_ridge = float(np.clip(1.0 - ridge_orth_median_px / 4.0, 0.0, 1.0))
+    s_ticks = float(np.clip(n_hash_inliers / 20.0, 0.0, 1.0))
+    s_hash = float(np.clip(1.0 - hash_row_rmse_px / 4.0, 0.0, 1.0))
+    conf = float(np.round(0.25 * (s_lines + s_ridge + s_ticks + s_hash), 4))
+    return conf, {
+        "line_support": round(s_lines, 4),
+        "ridge_residual": round(s_ridge, 4),
+        "hash_support": round(s_ticks, 4),
+        "hash_residual": round(s_hash, 4),
+    }
+
+
+def resolve_x_coord_mode_and_parity(
+    even_score: float,
+    odd_score: float,
+    x_start_verified: bool = False,
+) -> Tuple[Optional[int], XCoordMode]:
+    """Resolve 10-yard parity and longitudinal coordinate mode without guessing absolute position.
+
+    - If `x_start_verified` is True and 10-yard number parity is resolved -> ("absolute").
+    - If 10-yard number parity is resolved (`max >= PARITY_MIN_SCORE` and `max >= PARITY_MIN_RATIO * min`)
+      but absolute yard line was not independently verified -> ("relative_10yd").
+    - Otherwise (numbers absent, occluded, or ambiguous) -> parity is None and mode is ("relative_5yd").
+    """
+    if np.isnan(even_score) or np.isnan(odd_score):
+        return None, "relative_5yd"
+    max_s = max(even_score, odd_score)
+    min_s = min(even_score, odd_score)
+    if max_s >= PARITY_MIN_SCORE and max_s >= PARITY_MIN_RATIO * max(min_s, 1e-6):
+        parity = 0 if even_score >= odd_score else 1
+        mode: XCoordMode = "absolute" if x_start_verified else "relative_10yd"
+        return parity, mode
+    return None, "relative_5yd"
 
 
 def calibrate_frame(
@@ -35,9 +94,23 @@ def calibrate_frame(
     step_yd: float = 5.0,
     use_centroid_hash_coords: bool = True,
     use_sideline_if_visible: bool = True,
+    x_start_verified: bool = False,
+    min_confidence: float = MIN_CALIBRATION_CONFIDENCE,
 ) -> CalibrationResult:
     """Run full zero-training Hough + Vanishing-Point + Guided Hash-Row calibration on one frame."""
     t0 = time.perf_counter()
+    if img is None or not isinstance(img, np.ndarray) or img.ndim != 3 or min(img.shape[:2]) < 64:
+        return CalibrationResult(
+            success=False,
+            H=None,
+            H_inv=None,
+            notes=["Invalid or empty input frame"],
+            image_size=None,
+            confidence=0.0,
+            x_coord_mode="uncalibrated",
+            failure_reason="invalid_image",
+        )
+
     h, w = img.shape[:2]
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -46,9 +119,17 @@ def calibrate_frame(
 
     yard_lines, vp_yard, ridge_cnt, orth_med, orth_mean, err_yl = detect_yard_lines_and_vp(ridge_u8, h)
     if yard_lines is None or vp_yard is None:
+        reason = "no_hough_lines" if err_yl and "No Hough" in err_yl else "insufficient_yard_lines"
         return CalibrationResult(
-            False, None, None, notes=[err_yl or "Yard-line detection failed"],
-            image_size=(w, h), failure_reason=err_yl,
+            success=False,
+            H=None,
+            H_inv=None,
+            notes=[err_yl or "Yard-line detection failed"],
+            image_size=(w, h),
+            confidence=0.0,
+            x_coord_mode="uncalibrated",
+            failure_reason=reason,
+            runtime_ms=(time.perf_counter() - t0) * 1000.0,
         )
     x_vp, y_vp = vp_yard
 
@@ -56,9 +137,23 @@ def calibrate_frame(
         yard_lines, mask, turf, h, w
     )
     if far_hash is None or near_hash is None or all_inlier_ticks is None:
+        reason = "insufficient_hash_ticks" if err_hr and "Too few" in err_hr else "missing_hash_rows"
         return CalibrationResult(
-            False, None, None, notes=[err_hr or "Hash-row detection failed"],
-            image_size=(w, h), failure_reason=err_hr,
+            success=False,
+            H=None,
+            H_inv=None,
+            yard_lines=yard_lines,
+            vp_yard=(float(x_vp), float(y_vp)),
+            hash_tick_candidates=hash_pts_arr,
+            ridge_pixel_count=ridge_cnt,
+            ridge_orth_median_px=orth_med,
+            ridge_orth_mean_px=orth_mean,
+            notes=[err_hr or "Hash-row detection failed"],
+            image_size=(w, h),
+            confidence=0.0,
+            x_coord_mode="uncalibrated",
+            failure_reason=reason,
+            runtime_ms=(time.perf_counter() - t0) * 1000.0,
         )
 
     y_near_yd = Y_NEAR_HASH_YD if use_centroid_hash_coords else Y_NEAR_HASH_INNER_BUG_YD
@@ -102,10 +197,28 @@ def calibrate_frame(
     field_pts_arr = np.float32(field_pts)
 
     H, _ = cv2.findHomography(img_pts_arr, field_pts_arr, 0)
-    if H is None:
+    if H is None or abs(np.linalg.det(H)) < 1e-12:
         return CalibrationResult(
-            False, None, None, notes=["cv2.findHomography returned None"],
-            image_size=(w, h), failure_reason="cv2.findHomography returned None",
+            success=False,
+            H=None,
+            H_inv=None,
+            yard_lines=yard_lines,
+            far_hash_row=far_hash,
+            near_hash_row=near_hash,
+            far_sideline=far_sideline,
+            vp_yard=(float(x_vp), float(y_vp)),
+            hash_tick_inliers=all_inlier_ticks,
+            hash_tick_candidates=hash_pts_arr,
+            ridge_pixel_count=ridge_cnt,
+            ridge_orth_median_px=orth_med,
+            ridge_orth_mean_px=orth_mean,
+            hash_row_rmse_px=hash_rmse,
+            notes=["cv2.findHomography returned None or singular matrix"],
+            image_size=(w, h),
+            confidence=0.0,
+            x_coord_mode="uncalibrated",
+            failure_reason="homography_solve_failed",
+            runtime_ms=(time.perf_counter() - t0) * 1000.0,
         )
     H_inv = np.linalg.inv(H)
 
@@ -134,13 +247,85 @@ def calibrate_frame(
 
     even_score = float(np.mean(scores[0::2]))
     odd_score = float(np.mean(scores[1::2])) if len(scores) > 1 else 0.0
-    parity = 0 if even_score > odd_score else 1
+    parity, x_mode = resolve_x_coord_mode_and_parity(
+        even_score, odd_score, x_start_verified=x_start_verified
+    )
 
     plausible_ok = plausible_homography(H, (w, h))
+    conf, conf_components = compute_calibration_confidence(
+        len(yard_lines), orth_med, int(len(all_inlier_ticks)), hash_rmse
+    )
     dt_ms = (time.perf_counter() - t0) * 1000.0
 
+    if not plausible_ok:
+        return CalibrationResult(
+            success=False,
+            H=None,
+            H_inv=None,
+            yard_lines=yard_lines,
+            far_hash_row=far_hash,
+            near_hash_row=near_hash,
+            far_sideline=far_sideline,
+            vp_yard=(float(x_vp), float(y_vp)),
+            hash_tick_inliers=all_inlier_ticks,
+            hash_tick_candidates=hash_pts_arr,
+            ridge_pixel_count=ridge_cnt,
+            ridge_orth_median_px=orth_med,
+            ridge_orth_mean_px=orth_mean,
+            hash_row_rmse_px=hash_rmse,
+            even_idx_number_score=even_score,
+            odd_idx_number_score=odd_score,
+            detected_ten_yard_parity=parity,
+            plausible_orientation_scale=False,
+            runtime_ms=dt_ms,
+            notes=["Homography failed orientation/scale plausibility check"],
+            image_size=(w, h),
+            confidence=0.0,
+            confidence_components=conf_components,
+            x_coord_mode="uncalibrated",
+            failure_reason="implausible_homography",
+        )
+
+    if conf < min_confidence:
+        return CalibrationResult(
+            success=False,
+            H=None,
+            H_inv=None,
+            yard_lines=yard_lines,
+            far_hash_row=far_hash,
+            near_hash_row=near_hash,
+            far_sideline=far_sideline,
+            vp_yard=(float(x_vp), float(y_vp)),
+            hash_tick_inliers=all_inlier_ticks,
+            hash_tick_candidates=hash_pts_arr,
+            ridge_pixel_count=ridge_cnt,
+            ridge_orth_median_px=orth_med,
+            ridge_orth_mean_px=orth_mean,
+            hash_row_rmse_px=hash_rmse,
+            even_idx_number_score=even_score,
+            odd_idx_number_score=odd_score,
+            detected_ten_yard_parity=parity,
+            plausible_orientation_scale=True,
+            runtime_ms=dt_ms,
+            notes=[f"Calibration confidence {conf:.3f} below threshold {min_confidence:.3f}"],
+            image_size=(w, h),
+            confidence=conf,
+            confidence_components=conf_components,
+            x_coord_mode="uncalibrated",
+            failure_reason="insufficient_confidence",
+        )
+
+    diagnostics: Dict[str, Any] = {
+        "n_yard_lines": len(yard_lines),
+        "n_hash_inliers": int(len(all_inlier_ticks)),
+        "n_hash_candidates": int(len(hash_pts_arr)),
+        "far_sideline_used": far_sideline is not None,
+        "use_centroid_hash_coords": use_centroid_hash_coords,
+        "line_number_scores": [round(float(s), 4) for s in scores],
+    }
+
     return CalibrationResult(
-        success=plausible_ok,
+        success=True,
         H=H,
         H_inv=H_inv,
         yard_lines=yard_lines,
@@ -157,13 +342,53 @@ def calibrate_frame(
         even_idx_number_score=even_score,
         odd_idx_number_score=odd_score,
         detected_ten_yard_parity=parity,
-        plausible_orientation_scale=plausible_ok,
+        plausible_orientation_scale=True,
         runtime_ms=dt_ms,
         image_size=(w, h),
-        confidence=1.0 if plausible_ok else 0.0,
-        x_coord_mode="relative_10yd" if plausible_ok else "uncalibrated",
-        failure_reason=None if plausible_ok else "Failed orientation/scale plausibility check",
+        confidence=conf,
+        confidence_components=conf_components,
+        x_coord_mode=x_mode,
+        failure_reason=None,
+        diagnostics=diagnostics,
     )
+
+
+def image_to_field(
+    pts_uv: Union[Sequence[Sequence[float]], np.ndarray],
+    cal_or_H: Union[CalibrationResult, np.ndarray],
+    min_confidence: float = MIN_CALIBRATION_CONFIDENCE,
+) -> Optional[np.ndarray]:
+    """Project image pixels (N, 2) -> field coordinates (N, 2) in yards.
+
+    When passed a CalibrationResult, refuses projection (returns None) if `not cal.can_project()`.
+    """
+    if isinstance(cal_or_H, CalibrationResult):
+        return cal_or_H.image_to_field(pts_uv, min_confidence=min_confidence)
+    if cal_or_H is None:
+        return None
+    arr = np.asarray(pts_uv, dtype=np.float32).reshape(-1, 1, 2)
+    if arr.size == 0:
+        return np.zeros((0, 2), dtype=np.float64)
+    return cv2.perspectiveTransform(arr, cal_or_H).reshape(-1, 2).astype(np.float64)
+
+
+def field_to_image(
+    pts_xy_yd: Union[Sequence[Sequence[float]], np.ndarray],
+    cal_or_H_inv: Union[CalibrationResult, np.ndarray],
+    min_confidence: float = MIN_CALIBRATION_CONFIDENCE,
+) -> Optional[np.ndarray]:
+    """Reproject field coordinates (N, 2) in yards -> image pixels (N, 2).
+
+    When passed a CalibrationResult, refuses reprojection (returns None) if `not cal.can_project()`.
+    """
+    if isinstance(cal_or_H_inv, CalibrationResult):
+        return cal_or_H_inv.field_to_image(pts_xy_yd, min_confidence=min_confidence)
+    if cal_or_H_inv is None:
+        return None
+    arr = np.asarray(pts_xy_yd, dtype=np.float32).reshape(-1, 1, 2)
+    if arr.size == 0:
+        return np.zeros((0, 2), dtype=np.float64)
+    return cv2.perspectiveTransform(arr, cal_or_H_inv).reshape(-1, 2).astype(np.float64)
 
 
 def plausible_homography(H: np.ndarray, frame_size: Tuple[int, int] = (900, 506)) -> bool:

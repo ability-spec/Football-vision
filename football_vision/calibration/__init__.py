@@ -9,6 +9,10 @@ from football_vision.calibration.hash_marks import detect_hash_rows_guided
 from football_vision.calibration.sidelines import detect_far_sideline
 from football_vision.calibration.homography import (
     calibrate_frame,
+    compute_calibration_confidence,
+    resolve_x_coord_mode_and_parity,
+    image_to_field,
+    field_to_image,
     plausible_homography,
     players_clustered,
     implied_player_height_ft,
@@ -22,6 +26,10 @@ __all__ = [
     "detect_hash_rows_guided",
     "detect_far_sideline",
     "calibrate_frame",
+    "compute_calibration_confidence",
+    "resolve_x_coord_mode_and_parity",
+    "image_to_field",
+    "field_to_image",
     "plausible_homography",
     "players_clustered",
     "implied_player_height_ft",

@@ -18,7 +18,7 @@ Coordinate convention (NFL field in yards, converted to feet where needed):
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Dict, Tuple
 
 YARDS_TO_FEET: float = 3.0
 FEET_TO_YARDS: float = 1.0 / 3.0
@@ -52,6 +52,64 @@ MIN_PLAYERS_FOR_SPREAD: int = 4
 PLAYER_HEIGHT_RANGE_YD: Tuple[float, float] = (1.0, 3.0)  # 3.0 to 9.0 ft
 PLAYER_HEIGHT_RANGE_FT: Tuple[float, float] = (3.0, 9.0)
 MIN_PLAYERS_FOR_HEIGHT: int = 3
+
+# Phase 1 calibration confidence & longitudinal parity thresholds
+MIN_CALIBRATION_CONFIDENCE: float = 0.45
+PARITY_MIN_SCORE: float = 0.05
+PARITY_MIN_RATIO: float = 2.0
+
+# Explicit specification of which downstream metrics are valid under each longitudinal coordinate mode
+VALID_METRICS_BY_X_COORD_MODE: Dict[str, Tuple[str, ...]] = {
+    "absolute": (
+        "absolute_yard_line_x",
+        "field_territory_own_vs_opp",
+        "red_zone_indicator",
+        "distance_to_goal_line_yd",
+        "ten_yard_grid_offset_yd",
+        "five_yard_grid_offset_yd",
+        "yards_gained_dx_yd",
+        "lateral_position_y_yd",
+        "distance_to_sidelines_yd",
+        "distance_to_hashes_yd",
+        "player_velocity_and_speed_yd_s",
+        "player_acceleration_yd_s2",
+        "player_distance_covered_yd",
+        "player_separation_yd",
+        "formation_width_and_depth_yd",
+        "box_count_and_alignment",
+        "route_depth_and_stem_geometry_yd",
+    ),
+    "relative_10yd": (
+        "ten_yard_grid_offset_yd",
+        "five_yard_grid_offset_yd",
+        "yards_gained_dx_yd",
+        "lateral_position_y_yd",
+        "distance_to_sidelines_yd",
+        "distance_to_hashes_yd",
+        "player_velocity_and_speed_yd_s",
+        "player_acceleration_yd_s2",
+        "player_distance_covered_yd",
+        "player_separation_yd",
+        "formation_width_and_depth_yd",
+        "box_count_and_alignment",
+        "route_depth_and_stem_geometry_yd",
+    ),
+    "relative_5yd": (
+        "five_yard_grid_offset_yd",
+        "yards_gained_dx_yd",
+        "lateral_position_y_yd",
+        "distance_to_sidelines_yd",
+        "distance_to_hashes_yd",
+        "player_velocity_and_speed_yd_s",
+        "player_acceleration_yd_s2",
+        "player_distance_covered_yd",
+        "player_separation_yd",
+        "formation_width_and_depth_yd",
+        "box_count_and_alignment",
+        "route_depth_and_stem_geometry_yd",
+    ),
+    "uncalibrated": (),
+}
 
 
 def yards_to_feet(yd: float) -> float:

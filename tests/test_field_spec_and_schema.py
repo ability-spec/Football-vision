@@ -1,4 +1,4 @@
-"""Unit tests for NFL field geometry specifications, core data schemas, and module boundaries."""
+"""Unit tests for NFL field geometry specifications, core data schemas, coordinate modes, and module boundaries."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ from football_vision.field_spec import (
     Y_NEAR_NUM_INNER_YD,
     Y_FAR_NUM_INNER_YD,
     Y_FAR_NUM_OUTER_YD,
+    VALID_METRICS_BY_X_COORD_MODE,
     yards_to_feet,
     feet_to_yards,
 )
@@ -52,6 +53,22 @@ class TestFieldSpecAndSchema(unittest.TestCase):
         self.assertAlmostEqual(yards_to_feet(10.0), 30.0, places=6)
         self.assertAlmostEqual(feet_to_yards(30.0), 10.0, places=6)
 
+    def test_valid_metrics_by_x_coord_mode_hierarchy(self):
+        abs_m = set(VALID_METRICS_BY_X_COORD_MODE["absolute"])
+        rel10_m = set(VALID_METRICS_BY_X_COORD_MODE["relative_10yd"])
+        rel5_m = set(VALID_METRICS_BY_X_COORD_MODE["relative_5yd"])
+        uncal_m = set(VALID_METRICS_BY_X_COORD_MODE["uncalibrated"])
+
+        self.assertEqual(uncal_m, set())
+        self.assertTrue(rel5_m.issubset(rel10_m))
+        self.assertTrue(rel10_m.issubset(abs_m))
+        self.assertIn("yards_gained_dx_yd", rel5_m)
+        self.assertIn("lateral_position_y_yd", rel5_m)
+        self.assertIn("ten_yard_grid_offset_yd", rel10_m)
+        self.assertNotIn("ten_yard_grid_offset_yd", rel5_m)
+        self.assertIn("absolute_yard_line_x", abs_m)
+        self.assertNotIn("absolute_yard_line_x", rel10_m)
+
     def test_schema_serialization_roundtrip_and_contracts(self):
         H = np.eye(3, dtype=np.float64)
         cal = CalibrationResult(
@@ -72,9 +89,25 @@ class TestFieldSpecAndSchema(unittest.TestCase):
             plausible_orientation_scale=True,
             runtime_ms=80.0,
             image_size=(900, 506),
-            confidence=1.0,
+            confidence=0.88,
+            confidence_components={"line_support": 1.0, "ridge_residual": 0.76, "hash_support": 1.0, "hash_residual": 0.82},
             x_coord_mode="relative_10yd",
         )
+        self.assertEqual(cal.vanishing_point, (450.0, -900.0))
+        self.assertIs(cal.field_homography, H)
+        self.assertIn("far_sideline", cal.sidelines)
+        self.assertIn("rmse_px", cal.hash_marks)
+        self.assertAlmostEqual(cal.residuals["ridge_orth_median_px"], 0.95)
+        self.assertTrue(cal.can_project())
+
+        # Verify image_to_field and field_to_image work when can_project() is True,
+        # and refuse projection (return None) when confidence is below min_confidence.
+        pts = np.array([[25.0, 30.0], [50.0, 20.0]])
+        np.testing.assert_allclose(cal.image_to_field(pts), pts)
+        np.testing.assert_allclose(cal.field_to_image(pts), pts)
+        self.assertIsNone(cal.image_to_field(pts, min_confidence=0.95))
+        self.assertIsNone(cal.field_to_image(pts, min_confidence=0.95))
+
         cal_dict = cal.to_dict()
         serialized = json.dumps(cal_dict)
         loaded = json.loads(serialized)
@@ -82,6 +115,8 @@ class TestFieldSpecAndSchema(unittest.TestCase):
         self.assertEqual(loaded["image_size"], [900, 506])
         self.assertEqual(loaded["hash_tick_inliers_count"], 12)
         self.assertEqual(loaded["x_coord_mode"], "relative_10yd")
+        self.assertIn("yards_gained_dx_yd", loaded["valid_metrics"])
+        self.assertNotIn("absolute_yard_line_x", loaded["valid_metrics"])
 
         det = Detection(frame_index=5, box_xyxy=(100.0, 200.0, 140.0, 280.0), cls="player", confidence=0.92)
         self.assertEqual(det.bottom_center, (120.0, 280.0))
