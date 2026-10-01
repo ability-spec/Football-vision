@@ -94,6 +94,8 @@ class _TrackTrajectoryState:
     last_uv_frame: Optional[int] = None
     distance_cum_yd: float = 0.0
     frames_since_measurement: int = 0
+    last_observed_frame: Optional[int] = None
+    last_projectable_frame: Optional[int] = None
     reinitialized_after_gap: bool = False
     reinitialized_after_rejections: bool = False
 
@@ -149,6 +151,9 @@ class PlayerTrajectoryBuilder:
 
         # Auditable counters
         self.fabricated_field_positions: int = 0
+        # Recovery audit: frames between the last observed sample and the next one.
+        self.recovery_latencies_frames: List[int] = []
+        self.projection_recovery_latencies_frames: List[int] = []
         self.samples_emitted: int = 0
         self.measurements_rejected: int = 0
         self.filter_reinitializations: int = 0
@@ -161,6 +166,8 @@ class PlayerTrajectoryBuilder:
         self._trajectories.clear()
         self._detector_names.clear()
         self.fabricated_field_positions = 0
+        self.recovery_latencies_frames = []
+        self.projection_recovery_latencies_frames = []
         self.samples_emitted = 0
         self.measurements_rejected = 0
         self.filter_reinitializations = 0
@@ -403,12 +410,30 @@ class PlayerTrajectoryBuilder:
                 if passthrough in trk.detector_metadata:
                     provenance[passthrough] = trk.detector_metadata[passthrough]
 
+            observed = int(trk.missed_frames) == 0 and bool(trk.footpoint_estimate.is_reliable)
+            if observed and st.last_observed_frame is not None:
+                gap = int(frame_id) - int(st.last_observed_frame) - 1
+                if gap > 0:
+                    self.recovery_latencies_frames.append(gap)
+            if observed:
+                st.last_observed_frame = int(frame_id)
+
+            # Field-position recovery latency: frames between two positioned samples
+            # for this track (i.e. how long the trajectory had no field position).
+            if position is not None:
+                if st.last_projectable_frame is not None:
+                    proj_gap = int(frame_id) - int(st.last_projectable_frame) - 1
+                    if proj_gap > 0:
+                        self.projection_recovery_latencies_frames.append(proj_gap)
+                st.last_projectable_frame = int(frame_id)
+
             sample = TrajectorySample(
                 track_id=int(trk.track_id),
                 frame_id=int(frame_id),
                 timestamp_s=round(timestamp_s, 6),
                 geometry_state=geometry_state,
                 x_coord_mode=mode,
+                track_state="observed" if observed else "coasted",
                 image_footpoint=image_footpoint,
                 field_position=position,
                 raw_field_position=measured_xy,

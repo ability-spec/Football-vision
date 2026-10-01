@@ -117,3 +117,40 @@ Field covariance = `J · Σ_px · Jᵀ` with the analytic homography Jacobian `J
 3. Acceleration error is bounded by the filter's process-noise floor and should not be quoted as a validated capability.
 4. Track fragmentation is unresolved: outlier-induced track spawns and out-of-sequence associations are reported but not repaired (no track merging / global re-association).
 5. The Phase 4 benchmark measures the trajectory layer on **synthetic deterministic fixture motion**; it is not evidence of NFL tracking accuracy, and image-space player-detector accuracy remains unmeasured.
+
+---
+
+## E. Phase 4 Addendum II — Track State, Camera Cuts, and Motion Preservation
+
+### Track state
+Every `TrajectorySample` carries `track_state ∈ {"observed", "coasted"}`:
+- `observed` — the Phase 3 tracker had a detection this frame **and** the footpoint was reliable.
+- `coasted` — the track was coasting (occluded / missed) or the footpoint was refused.
+Observed/coasted counts, `missed_frames`, detection confidence, footpoint reliability flags, and the torso-cluster
+`team` / `team_confidence` travel with the sample, so a consumer can always tell a real observation from a
+model-propagated one.
+
+### Recovery latency
+- `recovery_latency_frames_*` — frames between two consecutive **observed** samples of the same track.
+- `projection_recovery_latency_frames_*` — frames between two consecutive samples that carried a **field position**.
+Both are reported rather than hidden; a long latency is visible as a large number instead of a silent gap.
+
+### Camera cuts
+A camera cut is modelled as an abrupt synthetic framing change plus explicit calibration refusal objects
+(`failure_reason = "camera_cut_uncalibrated"`). Phase 4 guarantees: no field position is claimed while the geometry is
+refused, trajectories are re-acquired afterwards, and the projection-recovery latency is reported. Phase 4 does **not**
+preserve player identity across a cut (no re-identification module) and does **not** implement cut *detection* — the cut
+is declared by the benchmark, not inferred.
+
+### Motion preservation (no smoothing away of real motion)
+`motion_preservation_ratio_vs_gt = smoothed path length / ground-truth path length` is reported per sequence and per split
+(≈1.0 across the frozen splits). The raw unsmoothed projection path is longer than ground truth because it accumulates
+jitter, which is exactly what smoothing is for. An A/B on `process_accel_std_yd_s2` (5.0 vs 0.5 yd/s², `TRAIN`+`VAL` only,
+stored as `process_noise_ablation` in the benchmark JSON) shows the result is insensitive in that range and that neither
+setting shortens real movement by more than ~2%.
+
+### Identity metrics
+Phase 4 evaluates the same CLEAR-style identity definitions as Phase 3 (`IDSW` on observed samples, split into
+active-association swaps vs post-expiration re-initializations; `FRAG` on observation gaps). Because Phase 4 associates
+per sample against the full active track set, its `IDSW` events are all active-swap violations — a *different* failure
+mode from the single post-expiration re-init that Phase 3 reported on `TEST`.

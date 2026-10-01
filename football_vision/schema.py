@@ -481,6 +481,7 @@ class PlayerTrack:
 
 GeometryState = Literal["calibrated", "propagated", "unknown"]
 PositionSource = Literal["measured_smoothed", "predicted_dead_reckoning", "none"]
+TrackObservationState = Literal["observed", "coasted"]
 
 
 @dataclass
@@ -498,6 +499,7 @@ class TrajectorySample:
     timestamp_s: float
     geometry_state: GeometryState
     x_coord_mode: XCoordMode
+    track_state: TrackObservationState = "coasted"
     image_footpoint: Optional[Tuple[float, float]] = None
     field_position: Optional[Tuple[float, float]] = None
     raw_field_position: Optional[Tuple[float, float]] = None
@@ -567,6 +569,14 @@ class FieldTrajectory:
     def n_predicted(self) -> int:
         return sum(1 for s in self.samples if s.position_source == "predicted_dead_reckoning")
 
+    @property
+    def n_observed(self) -> int:
+        return sum(1 for s in self.samples if s.track_state == "observed")
+
+    @property
+    def n_coasted(self) -> int:
+        return sum(1 for s in self.samples if s.track_state == "coasted")
+
     def geometry_state_counts(self) -> Dict[str, int]:
         counts: Dict[str, int] = {"calibrated": 0, "propagated": 0, "unknown": 0}
         for s in self.samples:
@@ -586,6 +596,8 @@ class FieldTrajectory:
             "n_samples": self.n_samples,
             "n_measured": self.n_measured,
             "n_predicted": self.n_predicted,
+            "n_observed": self.n_observed,
+            "n_coasted": self.n_coasted,
             "geometry_state_counts": self.geometry_state_counts(),
             "total_distance_yd": self.total_distance_yd,
             "notes": list(self.notes),

@@ -2,142 +2,185 @@
 
 **Status:** Phase 4 implementation complete — submitted for review (NOT marked FINAL).
 
-This report covers the Phase 4 field-space trajectory layer built on top of the untouched Phase 2
-calibration API and the Phase 3 detector / tracker / projector interfaces. **No Phase 2 or Phase 3
-algorithm was modified** (`git diff` of `football_vision/calibration/`, `detection/`, `identity/`,
-`tracking/`, `projection/` against the previous commit is empty; only `schema.py` gained additive
-Phase 4 dataclasses and `__init__.py` re-exports).
+Phase 4 turns per-frame player observations into trustworthy multi-frame **field-space trajectories**, built on the
+untouched Phase 2 calibration API and the Phase 3 detector / footpoint / tracker / projection interfaces.
+**No Phase 2 or Phase 3 algorithm was modified** (only additive Phase 4 dataclasses in `schema.py` and exports in
+`__init__.py` → `v0.4.0`).
+
+**Out of scope (left to downstream modules):** ball tracking, jersey OCR, event detection, route classification,
+and prediction models were not implemented in Phase 4.
 
 ---
 
-## 1. What Phase 4 Adds
+## 1. Requirements Coverage
 
-| Capability | Implementation | Contract |
+| Phase 4 requirement | Implementation | Evidence / contract |
 | :--- | :--- | :--- |
-| Persistent track state | `football_vision/trajectory/builder.py::PlayerTrajectoryBuilder` | Per-`track_id` state survives frames (filter, rejection streak, last accepted measurement, distance). |
-| Multi-frame trajectories | `schema.FieldTrajectory` / `schema.TrajectorySample` | One sample per track per frame with full provenance; JSON-serializable. |
-| Field-space projection over time | reuses `FieldProjector` unchanged | `field_position` is only ever an accepted, projected measurement. |
-| Camera-motion interaction | smoothing **only** in field space; per-frame `CalibrationResult.H` consumes camera motion | Camera pan/zoom changes `H`, not the smoothed state — verified by test `test_builder_camera_pan_keeps_field_trajectory_stable`. |
-| Trajectory smoothing | `trajectory/smoothing.py::ConstantVelocityFieldFilter` | 4-state (X, Y, VX, VY) Kalman filter in yards; deterministic; Joseph-form covariance update. |
-| Velocity / acceleration | `trajectory/kinematics.py` | Velocity from filter state (yd/s); acceleration by finite difference with a plausibility clamp; explicit clip flags. |
-| Jump / outlier rejection | `trajectory/outlier.py` (`FieldJumpGate`, `ImageSpaceJumpGate`, `RejectionTracker`) | Chi-square innovation gate in field space; image-space plausibility flag when geometry is unknown; persistent disagreement triggers an explicit, auditable re-initialization. |
-| Uncertainty propagation | `trajectory/uncertainty.py` | Box-derived footpoint pixel covariance → analytic homography Jacobian → field covariance (yd²), inflated for propagated/low-confidence geometry; σ-ellipse reported per sample. |
-| Geometry states | `trajectory/geometry_state.py` | Explicit `calibrated` / `propagated` / `unknown`; `unknown` ⇒ **no** field position may be claimed. |
-| Frozen benchmark | `benchmarks/evaluate_phase4_trajectories.py` + `data/benchmarks/phase4_trajectory_manifest.json` | `TRAIN / VAL / TEST` splits, zero constants tuned on `TEST`. |
-
-**Explicitly out of scope (critical path protection):** ball detection and jersey OCR were not touched in Phase 4.
+| **1. Track state** — persistent `track_id`, observed vs coasted, `missed_frames`, detection confidence, footpoint reliability, team cluster + confidence | `trajectory/builder.py`, `schema.TrajectorySample` | every sample carries `track_state ∈ {observed, coasted}`, `missed_frames`, `provenance.team` / `team_confidence`, and the Phase 3 footpoint reliability flags |
+| **2. Temporal field projection** — project only when calibration + footpoint are valid; propagate calibration state; preserve `x_coord_mode`; never invent an absolute yardline | Phase 3 `projection.FieldProjector`, reused unchanged | `projection_status` records the exact refusal reason; `absolute_yardline = None` unless `x_coord_mode == "absolute"` (`0` violations) |
+| **3. Trajectory construction** — x/y over time, frame/timestamp, smoothing, jump rejection, uncertainty, observed vs inferred samples | `trajectory/smoothing.py`, `outlier.py`, `uncertainty.py` | `field_position` = accepted smoothed measurement; `predicted_position` = labelled dead reckoning; `position_source="none"` beyond `max_gap_frames` |
+| **4. Kinematics** — velocity, acceleration, direction, distance travelled | `trajectory/kinematics.py` | filter-state velocity, clamped finite-difference acceleration with clip flags, `direction_rad`, cumulative `distance_cum_yd` accrued only between accepted measurements |
+| **5. Camera-motion interaction** — pan, zoom, short propagation, camera cut, occlusion, dropout | manifest sequences 3, 5, 6, 8 | `traj_seq_08` implements an explicit camera cut with refusal reason `camera_cut_uncalibrated` + measured recovery latency |
+| **6. Frozen temporal benchmark** | `benchmarks/evaluate_phase4_trajectories.py`, `data/benchmarks/phase4_trajectory_manifest.json` | 8 sequences / 180 frames; `TRAIN / VAL / TEST`; no constant tuned on `TEST` |
+| **7. Real NFL validation** | `real_frame_smoke_test` | single-frame integration smoke test, `quantitative_ground_truth_available: false` |
+| **8. Scope** | — | no ball tracking, jersey OCR, event detection, route classification, or prediction model |
+| **9. Preservation** | test suite | Phase 0/1 + Phase 2 + Phase 3 tests unchanged and green |
 
 ---
 
-## 2. Detector Provenance (unchanged facts from the Phase 3 audit)
+## 2. Detector Provenance (carried over from the accepted Phase 3 audit)
 
-- All controlled `TRAIN / VAL / TEST` sequences use **`FixturePlayerDetector` (`fixture_detector_v1`)**. Phase 4 measures the *trajectory layer* given projected player positions.
-- **Image-space player-detector accuracy remains UNMEASURED.** This benchmark is **not** evidence that image-based player detection is solved.
-- The single real-frame smoke test uses `TurfContrastPlayerDetector` (`turf_contrast_baseline_v1`) and reports no quantitative accuracy.
-- `TEAM_A / TEAM_B` remain permutation-invariant appearance clusters; Phase 4 metrics do not depend on real-world team identity.
+- Controlled sequences use **`FixturePlayerDetector` (`fixture_detector_v1`)**; Phase 4 evaluates the *trajectory layer* given player positions.
+- **Image-space player-detector accuracy remains UNMEASURED.** A perfect fixture pass-through is **not** evidence that image-based detection is solved.
+- The real-frame check uses `TurfContrastPlayerDetector` (`turf_contrast_baseline_v1`) as a single-frame smoke test only.
+- `TEAM_A / TEAM_B` remain permutation-invariant torso-appearance clusters; no Phase 4 metric depends on real-world team identity.
 
-### 2.1 Fixture construction (what the ground truth actually is)
+### 2.1 What the ground truth is
 
-1. **Player motion** is synthetic deterministic field-space ground truth (straight routes, tanh-blended cuts, speed ramps) integrated at 240 Hz. **These are engineering fixtures, not recorded NFL trajectories.**
-2. **Footpoints** are generated by projecting that ground truth through the *real* per-frame homography of each base broadcast / All-22 image, then adding deterministic pixel jitter (0.8 px on train/val and two test sequences, deliberately 3.0 px on `traj_seq_07`).
-3. **Geometry per frame** is a `CalibrationResult` built from the real Phase 1 calibration of the base frame; for camera-motion sequences the camera operator is composed exactly (`H_t = H_base · T(pan_t) · S(zoom_t)`); propagated frames compose a deliberate drift (`2.5 px × age`) and are flagged `is_temporally_propagated`; unknown frames are explicit failure objects with no `H`.
-4. **Detection boxes** are fixture boxes (`fixture_detector_v1`) around those footpoints; the Phase 3 tracker, footpoint gate, and projector consume them unmodified.
+1. Player motion is **synthetic deterministic field-space ground truth** (straight routes, tanh-blended cuts, speed ramps) integrated at 240 Hz — engineering fixtures, **not** recorded NFL trajectories.
+2. Footpoints come from projecting that ground truth through the **real per-frame homography** of each base broadcast / All-22 frame, plus deterministic pixel jitter (0.4–0.8 px on most sequences; deliberately 1.6 px and 3.0 px on two `TEST` sequences).
+3. Per-frame geometry is a `CalibrationResult` from the real Phase 1 calibration; camera pan/zoom is composed exactly onto `H`; propagated frames carry deliberate drift with `is_temporally_propagated=True`; refused frames are explicit failure objects (`confidence_expired`, `camera_cut_uncalibrated`).
+4. Detection boxes are fixture boxes around those footpoints; the Phase 3 tracker, footpoint gate and projector are consumed unmodified.
 
 ---
 
 ## 3. Frozen Parameters (fixed a priori, before `TEST`)
 
-| Parameter | Value | Meaning / honest status |
+| Parameter | Value | Honest status |
 | :--- | :---: | :--- |
-| `process_accel_std_yd_s2` | `5.0` | Kalman process-noise acceleration scale (≈0.5 g). **Assumption**, not measured NFL biomechanics. |
-| `gate_chi2_2dof` | `9.21` | Chi-square 2-dof 99% quantile for the field-space innovation gate. |
-| `max_speed_yd_s` | `12.0` | Speed clamp (≈24.5 mph). Plausibility guard. |
-| `max_accel_yd_s2` | `25.0` | Acceleration clamp (≈2.6 g). Plausibility guard. |
-| `max_gap_frames` | `3` | Frames of dead reckoning before a sample claims **no** position at all. |
-| `max_consecutive_rejections` | `3` | After this many consecutive rejections the filter is explicitly re-initialized. |
-| `propagated_drift_yd_per_age` | `0.25` | Assumed field-space drift per propagation frame used to inflate uncertainty. |
-| `footpoint_edge_sigma_px` | `1.0` | Assumed per-edge box localization noise (floor `0.3 px`). |
-| gate warm-up | `2 accepted updates` | Standard track initiation: the innovation gate is applied only once the state is estimable. The gate **threshold is unchanged**. |
+| `process_accel_std_yd_s2` | `5.0` | Process-noise acceleration scale (≈0.5 g). **Assumption**, not measured NFL biomechanics |
+| `gate_chi2_2dof` | `9.21` | χ²₂ 99% quantile for the field-space innovation gate |
+| `max_speed_yd_s` / `max_accel_yd_s2` | `12.0` / `25.0` | Plausibility clamps (≈24.5 mph / ≈2.6 g) |
+| `max_gap_frames` | `3` | Frames of dead reckoning before a sample claims no position at all |
+| `max_consecutive_rejections` | `3` | Explicit filter re-initialization after sustained disagreement |
+| `propagated_drift_yd_per_age` | `0.25` | Assumed drift per propagation frame used to inflate uncertainty |
+| `footpoint_edge_sigma_px` (floor `0.3`) | `1.0` | Assumed per-edge box noise |
+| `camera_cut_refusal_frames` | `3` | Refused frames in the camera-cut scenario |
+| Gate warm-up | `2` accepted updates | Standard track initiation; the gate **threshold is unchanged** |
 
-**No constant in this table was tuned on `TEST`.** One design rule was selected using `TRAIN`/`VAL` only, before any `TEST` sequence was executed: the innovation gate is not applied until a track has two accepted updates (standard track initiation). Measured effect of that warm-up (A/B on the frozen splits):
+**No constant was tuned on `TEST`.** One design rule was chosen on `TRAIN`/`VAL` only, before any `TEST` run, with a
+frozen A/B measurement stored in the JSON (`gate_warmup_ablation`):
 
-| Split | Gate active from 2nd update (`warmup=0`) | Gate active after warm-up (`warmup=2`, shipped) |
+| Split | Gate active from 2nd update | Gate active after warm-up (shipped) |
 | :--- | :---: | :---: |
 | `train` false rejections | `48 / 264` (`18.2%`) | `13 / 264` (`4.9%`) |
 | `val` false rejections | `1 / 246` (`0.4%`) | `0 / 246` (`0.0%`) |
 
-The gate **threshold** (`χ²₂ = 9.21`) was never changed, and the `TEST` splits were not consulted for this choice.
+### 3.1 The smoothing constant is not allowed to hide real motion
+
+`process_accel_std_yd_s2 = 5.0` is the only constant that can attenuate genuine movement (it sets the Kalman gain
+against measurement noise). Phase 4 therefore measures path length against ground truth:
+`motion_preservation_ratio_vs_gt = smoothed path / GT path` = `1.027` (train), `0.97` (val), `1` (test).
+The raw (unsmoothed) projection path is consistently **longer** than ground truth (`0.884` / `0.78` / `0.81` of the smoothed path) because it accumulates jitter; smoothing removes that jitter without
+shortening real motion.
+
+An A/B of that constant was measured on **`TRAIN` + `VAL` only** (stored in the JSON as `process_noise_ablation`; `TEST` was
+excluded so the comparison cannot be used to tune the frozen split):
+
+| Split | Shipped `5.0 yd/s²` (median err / path vs GT / mean σ) | Stiffer `0.5 yd/s²` |
+| :--- | :---: | :---: |
+| `train` | `0.0294 yd` / `1.027` / `0.0481 yd` | `0.0273 yd` / `1.024` / `0.0459 yd` |
+| `val` | `0.0214 yd` / `0.97` / `0.0445 yd` | `0.0221 yd` / `0.982` / `0.0414 yd` |
+
+The setting is therefore **not sensitive** in this range: position error and preserved path length move by less than a few
+percent either way, and the stiffer setting merely reports slightly *smaller* uncertainty (i.e. more confident than warranted).
+The shipped value stands, and the motion-preservation metric confirms that no constant in this range is hiding real movement.
 
 ---
 
 ## 4. Frozen `TRAIN / VAL / TEST` Results
 
-All position/velocity/acceleration/uncertainty metrics below are computed over the **dominant trajectory per ground-truth player** (the track covering the most frames for that player). Samples from spurious/fragment tracks are scored separately so they can never silently improve the headline numbers.
+Primary accuracy metrics use the **dominant trajectory per ground-truth player**; spurious / fragment tracks are scored
+separately. Identity metrics use the same CLEAR-style definitions as the Phase 3 evaluator.
 
-| Metric | `train` (2 seq, 44 fr) | `val` (2 seq, 44 fr) | Frozen `test` (3 seq, 68 fr) | Notes |
+| Metric | `train` (2 seq, 44 fr) | `val` (2 seq, 44 fr) | Frozen `test` (4 seq, 92 fr) | Notes |
 | :--- | :---: | :---: | :---: | :--- |
 | Detector implementation | `FixturePlayerDetector (fixture_detector_v1)` | same | same | Fixture harness; image detector accuracy unmeasured |
-| Samples / expected | `264` / `264` | `277` / `264` | `418` / `408` | 6 players per frame |
-| Track completeness (position **or** labelled dead reckoning) | **1** | **0.966** | **0.953** | Share of player-frames with any estimate |
-| Measured completeness (accepted projected measurement) | 0.966 | 0.932 | 0.787 | `TEST` deficit = rejected outliers + occlusion coasting |
-| Tracks created | `12` | `15` | `21` | 6 players per sequence; extras are fragmented/spurious tracks |
-| Field identity changes (fragmentation + spurious) | `0` | `4` | `3` | Counted from the trajectory layer's own perspective |
-| Raw projection position error, median | 0.0447 yd | 0.0446 yd | 0.0685 yd | Baseline: project each frame's footpoint, no smoothing |
-| **Smoothed trajectory position error, median** | **0.0294 yd** | **0.0214 yd** | **0.0467 yd** | Primary position metric |
-| Smoothed error, p90 / RMSE | 0.0699 / 0.044 yd | 0.0553 / 0.0335 yd | 0.0999 / 0.0647 yd | |
-| Smoothing reduction vs raw projection | **34.23%** | **52.02%** | **31.82%** | Median error, not RMSE |
-| Image-space EMA baseline (smoothing *before* projection) | 0.1427 yd | 0.123 yd | 0.1538 yd | Comparison arm; degrades with camera motion/jitter |
-| Spurious-track position error, median | — | 0.0342 yd | 0.0825 yd | Reported separately from the primary metric |
-| Speed error, median | 0.2071 yd/s | 0.1263 yd/s | 0.2216 yd/s | `|\|v\| − \|v_gt\||` |
-| Velocity RMSE (vector) | 1.4943 yd/s | 1.0814 yd/s | 1.5709 yd/s | Includes filter lag during cuts |
-| Acceleration-magnitude error, median | 6.9914 yd/s² | 6.1868 yd/s² | 11.3515 yd/s² | GT median accel `train` `1.5`, `val` `0`, `test` `0` yd/s² |
-| Dead-reckoned samples (labelled, never a position claim) | `9` | `9` | `68` | Error median `0.0933` yd on `TEST` |
-| Outlier events injected / rejected by field gate | `0` / `0` | `4` / `3` | `3` / `1` | Event-level accounting |
-| Outlier events refused by projection gate / spawning a spurious track / absorbed | `0 / 0 / 0` | `0 / 1 / 0` | `1 / 1 / 0` | Handling rate `TEST` = 1 |
-| False rejections (gate) / gate-evaluated clean samples | `13` / `264` | `0` / `246` | `53` / `368` | Fraction of clean samples wrongly rejected (`TEST` 0.144) |
-| Structure-loss false rejections (motion along the camera-pan axis) | `13` | `0` | `53` | Recovered by the warm-up fix; `TEST` residual is jitter domination, see §5 |
-| Geometry-state samples (calibrated / propagated / unknown) | `264 / 0 / 0` | `277 / 0 / 0` | `381 / 18 / 19` | Explicit per-frame states |
-| Samples with a position while geometry is `unknown` | **`0`** | **`0`** | **`0`** | Safety invariant |
-| Absolute-yardline violations (`x_coord_mode != absolute`) | **`0`** | **`0`** | **`0`** | Safety invariant |
-| **Fabricated field positions** | **`0`** | **`0`** | **`0`** | Safety invariant |
-| Uncertainty coverage 68% / 95% (χ²₂ = 2.278 / 5.991) | 63.4% / 90.8% | 76.0% / 98.5% | 32.0% / 61.9% | Over **accepted measured** samples; `TEST` under-covers (see §5) |
-| Mean σ-ellipse major / minor | 0.0481 / 0.0097 yd | 0.0445 / 0.0096 yd | 0.0506 / 0.0121 yd | Typical reported uncertainty (≈0.5–0.7 ft major) |
-| Runtime (trajectory layer, ms/frame) | `7.21` | `4.78` | `5.58` | Wall-clock CPU; varies between runs |
+| Samples / expected | `264` / `264` | `277` / `264` | `577` / `552` | 6 players per frame |
+| **Track continuity** (position or labelled dead reckoning) | **1** | **0.966** | **0.884** | `TEST` loss comes from the camera cut (§4.1, §5.4) |
+| Observed-sample ratio | 1 | 0.973 | 0.984 | player actually detected with a reliable footpoint |
+| Inferred-sample ratio (dead reckoning) | 0.034 | 0.035 | 0.154 | never reported as a measured position |
+| Measured completeness | 0.966 | 0.932 | 0.748 | accepted projected measurement |
+| **IDSW** (lifetime, observed samples) | **`0`** | **`5`** | **`10`** | observed `track_id` change for a GT player |
+| — active association swap / post-expiration reinit | `0` / `0` | `5` / `0` | `10` / `0` | see §5.6 for the definition difference vs Phase 3 |
+| **FRAG** (observed after ≥1-frame observation gap) | `0` | `0` | `4` | |
+| Tracks created | `12` | `15` | `32` | 6 players per sequence; extras are fragment/spurious tracks |
+| Raw projection position error, median | 0.0447 yd | 0.0446 yd | 0.0599 yd | baseline without smoothing |
+| **Smoothed trajectory position error, median** | **0.0294 yd** | **0.0214 yd** | **0.037 yd** | primary position metric |
+| Trajectory error p90 / RMSE | 0.0699 / 0.044 yd | 0.0553 / 0.0335 yd | 0.0795 / 0.0566 yd | |
+| Smoothing reduction vs raw projection | **34.23%** | **52.02%** | **38.23%** | median error |
+| Image-space EMA arm (smoothing *before* projection) | 0.1427 yd | 0.123 yd | 0.1509 yd | degrades with camera motion |
+| Spurious-track position error, median | — | 0.0342 yd | 0.0616 yd | reported separately |
+| **Velocity** error median / RMSE | 0.2071 / 1.4943 yd/s | 0.1263 / 1.0814 yd/s | 0.1817 / 1.4477 yd/s | RMSE inflated by cut transients (§5.5) |
+| Direction-of-motion error, median | 4.38° | 1.66° | 2.93° | GT speed > 0.5 yd/s |
+| **Acceleration** magnitude error, median | 6.9914 yd/s² | 6.1868 yd/s² | 8.3251 yd/s² | GT median accel `1.5` / `0` / `0` yd/s²; see §5.3 |
+| Distance travelled (smoothed / raw / GT, yd) | 38 / 43 / 37 | 32 / 41 / 33 | 64 / 79 / 64 | smoothing removes jitter, keeps real motion |
+| Outlier events (rejected / spurious / refused / absorbed) | `0` | `3 / 1 / 0 / 0` | `1 / 1 / 1 / 0` | handling rate `TEST` = 1 |
+| False rejections / gated clean samples | `13` / `264` | `0` / `246` | `56` / `462` | jitter-dominated on `TEST` (§5.2) |
+| **Recovery latency** after an observed gap (median / max frames) | `—` / `0` | `2` / `3` | `2` / `2` | frames with no observation before the next one |
+| Projection-recovery latency after a field-position gap (max frames) | `2` | `5` | `5` | includes the camera-cut refusal |
+| Geometry states (calibrated / propagated / unknown) | `264 / 0 / 0` | `277 / 0 / 0` | `507 / 18 / 52` | explicit per-frame state |
+| Samples with a position while geometry is `unknown` | **`0`** | **`0`** | **`0`** | safety invariant |
+| Absolute-yardline violations (`x_coord_mode != absolute`) | **`0`** | **`0`** | **`0`** | safety invariant |
+| **Fabricated trajectory samples** | **`0`** | **`0`** | **`0`** | safety invariant |
+| Uncertainty coverage 68% / 95% (accepted measurements) | 63.4% / 90.8% | 76.0% / 98.5% | 49.7% / 80.1% | under-covers on `TEST` (§5.2) |
+| Mean σ-ellipse major / minor | 0.0481 / 0.0097 yd | 0.0445 / 0.0096 yd | 0.0496 / 0.0114 yd | ≈0.5–0.7 ft typical major axis |
+| Runtime (trajectory layer, ms/frame) | `5.11` | `3.59` | `3.38` | wall-clock CPU; varies between runs |
 
 ### 4.1 Per-Sequence Detail
 
-| Sequence | Split | Frames | Jitter (px) | Tracks | Completeness | Raw med (yd) | Smoothed med (yd) | Cov 68/95 | Outlier events (rej/spur/ref/abs) | False rej / gated |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `traj_seq_01_train_linear_and_sprint` | `train` | 24 | 0.8 | 6 | 1 | 0.045 | 0.0229 | 73.6% / 97.9% | — | 0 / 144 |
-| `traj_seq_02_train_cuts_and_deceleration` | `train` | 20 | 0.8 | 6 | 1 | 0.0444 | 0.0359 | 53.1% / 83.8% | — | 13 / 120 |
-| `traj_seq_03_val_camera_pan` | `val` | 24 | 0.8 | 6 | 1 | 0.0459 | 0.0232 | 73.6% / 97.9% | — | 0 / 144 |
-| `traj_seq_04_val_jump_outliers` | `val` | 20 | 0.8 | 9 | 0.93 | 0.0433 | 0.0196 | 78.4% / 99.0% | 3/1/0/0 | 0 / 102 |
-| `traj_seq_05_test_calibration_dropout_and_propagation` | `test` | 24 | 0.8 | 7 | 0.94 | 0.0512 | 0.0273 | 67.5% / 98.3% | 0/0/1/0 | 0 / 120 |
-| `traj_seq_06_test_camera_pan_zoom_occlusion` | `test` | 24 | 1.6 | 7 | 0.93 | 0.0933 | 0.058 | 14.4% / 40.4% | 1/0/0/0 | 32 / 132 |
-| `traj_seq_07_test_high_jitter_and_occlusion` | `test` | 20 | 3.0 | 7 | 1 | 0.0685 | 0.0467 | 32.0% / 61.9% | 0/1/0/0 | 21 / 116 |
+| Sequence | Split | Fr | Jitter px | Tracks | Continuity | Obs / Inf | IDSW | FRAG | Smoothed med (yd) | Path vs GT | Recovery lat (med/max) | Outliers (rej/spur/ref/abs) |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| `traj_seq_01_train_linear_and_sprint` | `train` | 24 | 0.8 | 6 | 1 | 1 / 0 | 0 | 0 | 0.0229 | 1.011 | — / 0 | — |
+| `traj_seq_02_train_cuts_and_deceleration` | `train` | 20 | 0.8 | 6 | 1 | 1 / 0.07 | 0 | 0 | 0.0359 | 1.03 | — / 0 | — |
+| `traj_seq_03_val_camera_pan` | `val` | 24 | 0.8 | 6 | 1 | 1 / 0 | 0 | 0 | 0.0232 | 1.021 | — / 0 | — |
+| `traj_seq_04_val_jump_outliers` | `val` | 20 | 0.8 | 9 | 0.93 | 0.94 / 0.08 | 5 | 0 | 0.0196 | 0.944 | 2 / 3 | 3/1/0/0 |
+| `traj_seq_05_test_calibration_dropout_and_propagation` | `test` | 24 | 0.8 | 7 | 0.94 | 1 / 0.11 | 1 | 0 | 0.0273 | 1 | — / 0 | 0/0/1/0 |
+| `traj_seq_06_test_camera_pan_zoom_occlusion` | `test` | 24 | 1.6 | 7 | 0.93 | 0.99 / 0.22 | 1 | 1 | 0.058 | 1.064 | 2 / 2 | 1/0/0/0 |
+| `traj_seq_07_test_high_jitter_and_occlusion` | `test` | 20 | 3.0 | 7 | 1 | 0.97 / 0.19 | 2 | 2 | 0.0467 | 1.009 | 1 / 2 | 0/1/0/0 |
+| `traj_seq_08_test_camera_cut_refusal_and_recovery` | `test` | 24 | 0.4 | 11 | 0.69 | 0.98 / 0.07 | 6 | 1 | 0.0125 | 0.83 | 2 / 2 | — |
 
-**Determinism check:** re-running `traj_seq_04_val_jump_outliers` reproduces every metric exactly
-(`deterministic = True`, differing keys: `[]`); only wall-clock runtime fields vary between runs.
+**Camera-cut scenario (`traj_seq_08`).** Hard shot change at frame 5, calibration refused for frames `[5, 6, 7]` with reason `camera_cut_uncalibrated` (`33` refused samples), **zero** field positions claimed while refused (`positioned_by_geometry_state.unknown = 0`), re-acquisition afterwards with max projection-recovery latency **5 frames**, continuity 0.69, IDSW `6`, FRAG `1` (identity is lost across the cut: Phase 4 has no re-identification module).
+
+**Determinism:** re-running `traj_seq_04_val_jump_outliers` reproduces every metric exactly
+(`deterministic = True`, differing keys `[]`).
 
 ---
 
 ## 5. Honest Limitations (read before quoting any number above)
 
-1. **Fixture, not NFL motion.** Ground-truth trajectories are synthetic deterministic routes projected through real homographies. Player speeds (1.5–8.0 yd/s), cut timings, and jitter levels are engineering choices. The position/velocity errors above are therefore a measure of the *trajectory layer*, not of NFL tracking accuracy.
-2. **Image detector accuracy is unmeasured.** Boxes come from `fixture_detector_v1`. Nothing in Phase 4 validates `TurfContrastPlayerDetector` on real footage.
-3. **`TEST` uncertainty coverage under-covers** (68% band covers 32.0%, 95% band covers 61.9%).
-   The frozen footpoint noise model assumes 1.0 px per-edge noise, while `TEST` sequences 6–7 inject 1.6 px and 3.0 px jitter, and sequence 6 additionally has zoom. The model is therefore **optimistic at `TEST` jitter levels**; `TRAIN`/`VAL` coverage (e.g. 68% band covers 63.4% / 76.0%) is close to nominal.
-   This is reported as a *measurement–model mismatch*, and the conservative choice would be to raise `footpoint_edge_sigma_px` — which would need re-freezing and re-validation on `TRAIN`/`VAL`, so it is left as an open item rather than quietly tuned on `TEST`.
-4. **False rejections are dominated by jitter, not jumps.** 53 of 368 gated clean `TEST` samples were rejected (0.144).
-   Root cause: the gate threshold `χ²₂ = 9.21` was frozen against the train/val jitter scale (0.8–1.6 px); at the 3.0 px jitter of `traj_seq_07` a clean sample regularly exceeds it. Each rejection costs one dead-reckoned sample, which is why `TEST` measured completeness is 0.787.
-5. **Acceleration is the weakest metric.** Median acceleration-magnitude error is 11.4 yd/s² on `TEST`; on straight-line sequences it is bounded by the filter's process-noise assumption (GT acceleration is 0 yd/s², so an error of ~7 is the filter's own acceleration floor). Acceleration should **not** be quoted as a validated capability.
-6. **Track fragmentation is unresolved.** 3 identity changes occurred on `TEST` (21 tracks for 18 player-sequences). The dominant cause is outlier-induced track spawns at dense gate misses (e.g. an outlier that lands near another player creates a spurious track that is then terminated after `max_consecutive_rejections`). Phase 4 does not implement track merging or global identity re-association.
-7. **No real multi-frame broadcast clip was available in this phase.** The real-frame check is a single-frame integration smoke test and provides no trajectory accuracy.
-8. **Camera motion is applied as an exact synthetic image-space transform.** Real broadcast cameras also change perspective, rolling shutter, and motion blur, none of which are modelled here.
+**5.1 Fixture, not NFL motion.** Ground truth is synthetic deterministic routes projected through real homographies;
+speeds, cut timings and jitter levels are engineering choices. These errors measure the *trajectory layer*, not NFL tracking accuracy.
+
+**5.2 `TEST` uncertainty under-covers and the gate over-rejects at high jitter.** The frozen footpoint noise model assumes
+1.0 px per-edge noise while two `TEST` sequences inject 1.6 px and 3.0 px, so the 68%/95% bands cover 49.7% / 80.1%
+of accepted measurements (`TRAIN`/`VAL` are near nominal), and 56 of 462 gated clean samples are rejected, each costing one
+dead-reckoned sample. Reported as a measurement–model mismatch; correcting it means re-freezing `footpoint_edge_sigma_px` in a later tuning phase.
+
+**5.3 Acceleration is the weakest metric** (median error 8.3 yd/s² on `TEST`, GT median 0 yd/s²). On straight routes the error is the filter's own
+process-noise floor, i.e. it reflects the assumed `process_accel_std_yd_s2` rather than measured biomechanics. Not a validated capability.
+
+**5.4 Identity is lost across a camera cut.** `traj_seq_08` shows continuity 0.69 with 6 IDSW and 1 FRAG: positions are
+refused rather than fabricated during the cut and re-acquired after it, but the Phase 3 tracker has no shot-change re-identification.
+
+**5.5 Velocity RMSE is inflated by exactly the events it should expose** — filter lag at abrupt cuts, the 1-frame dead-reckoning
+horizon, and post-cut re-acquisition — rather than by steady-state noise.
+
+**5.6 IDSW here is not the same event as the Phase 3 `TEST` IDSW.** Phase 3's single `TEST` IDSW was a post-expiration
+re-initialization (0 here) with zero active-swap switches. Phase 4 associates per sample against the full
+active track set, and all 10 `TEST` IDSW are **active-swap** violations (10 / 0 split). Both definitions are exposed in the JSON.
+
+**5.7 Candidate fixes were derived, then rejected as over-fitting.** (a) widen the gate to χ²₂ ≤ 16 to suppress jitter
+rejections; (b) elongate the motion prior along the camera-pan axis to remove pan-induced false rejections; (c) raise
+`process_accel_std_yd_s2` to smooth identity hops. Each would improve headline `TEST` numbers while weakening the
+uncertainty model or the physical prior, so none are shipped.
+
+**5.8 No real multi-frame broadcast clip was available**, and camera motion is an exact synthetic transform (no perspective
+change, rolling shutter, or motion blur). The real-frame result is a single-frame smoke test and provides no trajectory accuracy.
 
 ---
 
-## 6. Real-Frame Scope (smoke test only)
+## 6. Real NFL Frame Scope (smoke test only)
 
 | Field | Value |
 | :--- | :--- |
@@ -153,7 +196,7 @@ All position/velocity/acceleration/uncertainty metrics below are computed over t
 | `geometry_state_counts` | `{'calibrated': 25, 'propagated': 0, 'unknown': 0}` |
 | `samples_with_field_position` | `23` |
 | `samples_with_absolute_yardline` | `0` |
-| `fabricated_field_positions` | `0` |
+| `fabricated_trajectory_samples` | `0` |
 
 > Single-frame smoke test only: one still frame cannot exercise multi-frame trajectory, smoothing, camera motion, or occlusion behaviour.
 
@@ -162,16 +205,12 @@ All position/velocity/acceleration/uncertainty metrics below are computed over t
 ## 7. Reproduce
 
 ```bash
-# Phase 4 trajectory benchmark (writes outputs/phase4_trajectory_benchmark.json + overview PNG)
-python3 benchmarks/evaluate_phase4_trajectories.py
-
-# Full suite (Phase 0/1 calibration, Phase 2, Phase 3, Phase 4)
-python3 -m pytest -v
+python3 benchmarks/evaluate_phase4_trajectories.py   # outputs/phase4_trajectory_benchmark.json + overview PNG
+python3 -m pytest -v                                # full Phase 0-4 suite
 ```
 
-New tests added in Phase 4: `tests/test_phase4_trajectories.py` (18 tests) covering geometry-state resolution,
-footpoint covariance scaling, homography-Jacobian vs. finite differences, covariance PSD/inflation, filter
-jitter reduction and velocity recovery, speed/acceleration clamps, both jump gates, no-position-under-unknown-geometry,
-jump rejection with trajectory preservation, camera-pan field stability, labelled dead reckoning with `max_gap_frames`,
-`x_coord_mode` absolute-yardline enforcement, propagated-geometry uncertainty inflation, determinism, and benchmark invariants.
-
+`tests/test_phase4_trajectories.py` (22 tests) covers geometry-state resolution, footpoint covariance scaling, homography-Jacobian
+vs. finite differences, covariance PSD/inflation, filter jitter reduction and velocity recovery, speed/acceleration clamps, both
+jump gates, no-position-under-unknown-geometry, jump rejection with trajectory preservation, camera-pan field stability, labelled
+dead reckoning with `max_gap_frames`, `x_coord_mode` absolute-yardline enforcement, propagated-geometry uncertainty inflation,
+determinism, observed/coasted track state, recovery latency, motion preservation, camera-cut refusal → recovery, and benchmark invariants.

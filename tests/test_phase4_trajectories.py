@@ -484,12 +484,21 @@ def test_phase4_benchmark_metrics_and_invariants() -> None:
     for split in ("train", "val", "test"):
         agg = report["splits"][split]
         assert agg["fabricated_field_positions"] == 0
+        assert agg["fabricated_trajectory_samples"] == 0
         assert agg["absolute_yardline_violations"] == 0
         assert agg["samples_with_position_in_unknown_geometry"] == 0
-        assert agg["track_completeness"] > 0.90
+        # TRAIN/VAL are uninterrupted; TEST deliberately includes a camera cut that
+        # breaks track continuity, so completeness is required to be lower there.
+        assert agg["track_completeness"] > 0.95 if split != "test" else agg["track_completeness"] > 0.80
         assert agg["field_pos_err_median_yd"] is not None
         assert agg["field_pos_err_median_yd"] < agg["raw_field_pos_err_median_yd"]
         assert agg["outlier_events_absorbed_into_track"] == 0
+        # Observe/infer split and identity metrics must be reported for every split.
+        assert agg["observed_sample_ratio"] > 0.9
+        assert 0.0 <= agg["inferred_sample_ratio"] < 1.0
+        assert agg["id_switches"] == agg["id_switches_active_swap"] + agg["id_switches_post_reinit"]
+        # Smoothing must not shorten real motion: path length within a few % of GT.
+        assert agg["motion_preservation_ratio_vs_gt"] == pytest.approx(1.0, abs=0.15)
         total_samples += agg["n_samples"]
 
     assert total_samples == sum(s["n_samples"] for s in report["sequences"])
@@ -502,6 +511,15 @@ def test_phase4_benchmark_metrics_and_invariants() -> None:
     smoke = report["real_frame_smoke_test"]
     assert smoke["quantitative_ground_truth_available"] is False
     assert smoke["fabricated_field_positions"] == 0
+
+    # The camera-cut scenario must exercise the refusal/recovery state machine.
+    cut = next(s for s in report["sequences"] if s["scenario"] == "camera_cut_refusal_and_recovery")
+    assert cut["geometry_state_sample_counts"]["unknown"] > 0
+    assert cut["positioned_by_geometry_state"]["unknown"] == 0
+    assert cut["id_switches"] > 0, "a hard shot change must cost identity continuity"
+    assert cut["projection_recovery_latency_frames_max"] > 0
+    assert cut["recovery_latency_frames_max"] > 0
+    assert cut["fabricated_trajectory_samples"] == 0
 
 
 def test_phase4_benchmark_provenance_is_unambiguous() -> None:
@@ -523,3 +541,130 @@ def test_trajectory_layer_does_not_import_calibration_internals() -> None:
         src = path.read_text(encoding="utf-8")
         assert "import football_vision.calibration" not in src
         assert "from football_vision.calibration" not in src
+
+
+# ---------------------------------------------------------------------------
+# 7. Track state, recovery latency, and motion preservation
+# ---------------------------------------------------------------------------
+def test_track_state_marks_observed_vs_coasted(base_calibration: CalibrationResult) -> None:
+    builder = PlayerTrajectoryBuilder(fps=FPS)
+    cal = base_calibration
+    # Frames 3 and 4 have no usable geometry -> the track coasts in image space.
+    bad = _uncalibrated(cal)
+    cals = [cal, cal, cal, bad, bad, cal, cal]
+    points = [(24.0 + 0.06 * t, 30.0) for t in range(len(cals))]
+    samples = _run_stream(builder, cals, points, observation_cals=[cal] * len(cals))
+
+    frame3 = next(s for s in samples if s.frame_id == 3)
+    assert frame3.track_state == "observed", "footpoint is reliable: the player was observed"
+    assert frame3.geometry_state == "unknown"
+    assert frame3.field_position is None and frame3.predicted_position is not None
+    assert frame3.position_source == "predicted_dead_reckoning"
+
+    # A coasted (tracker-occluded) sample is explicitly marked as such.
+    occluded = PlayerTrack(**{**_track_from_field_point(1, cal, 24.0, 30.0).__dict__})
+    occluded.missed_frames = 2
+    occluded.footpoint_estimate = FootpointEstimate(
+        u_px=occluded.footpoint[0], v_px=occluded.footpoint[1], is_reliable=False,
+        confidence=0.0, is_temporarily_occluded=True, unreliable_reason="track_occluded_unobserved",
+    )
+    b2 = PlayerTrajectoryBuilder(fps=FPS)
+    s2 = b2.update([occluded], frame_id=0, calibration=cal)
+    assert s2[0].track_state == "coasted"
+    assert s2[0].position_source == "none"
+
+
+def test_recovery_latency_is_measured_after_an_observed_gap(base_calibration: CalibrationResult) -> None:
+    builder = PlayerTrajectoryBuilder(fps=FPS)
+    cal = base_calibration
+    n = 14
+    points = [(24.0 + 0.10 * t, 30.0) for t in range(n)]
+    # Frames 6,7,8 are absent from the detection stream entirely (track dropout).
+    frames_present = [t for t in range(n) if t not in (6, 7, 8)]
+    for t in range(n):
+        if t in (6, 7, 8):
+            continue
+        trk = _track_from_field_point(1, cal, *points[t])
+        builder.update([trk], frame_id=t, calibration=cal)
+    assert builder.recovery_latencies_frames == [3], builder.recovery_latencies_frames
+    assert builder.projection_recovery_latencies_frames == [3]
+    # Sample at frame 6 can only dead-reckon, frame 9 is measured again.
+    # (Verified through a second run that keeps frame indices contiguous.)
+    builder2 = PlayerTrajectoryBuilder(fps=FPS)
+    for t in range(n):
+        missed = 3 if t in (6, 7, 8) else 0
+        trk = _track_from_field_point(1, cal, *points[t], missed_frames=missed)
+        samples = builder2.update([trk], frame_id=t, calibration=cal)
+        assert len(samples) == 1
+    assert builder2.projection_recovery_latencies_frames == [3]
+
+
+def test_motion_is_not_smoothed_away(base_calibration: CalibrationResult) -> None:
+    """A constant-velocity player must keep its real speed through the filter."""
+    builder = PlayerTrajectoryBuilder(fps=FPS)
+    cal = base_calibration
+    n = 20
+    vx = 6.0
+    points = [(20.0 + vx * (t * DT), 30.0 + 0.5 * (t * DT)) for t in range(n)]
+    samples = _run_stream(builder, [cal] * n, points, observation_cals=[cal] * n)
+    positioned = [s for s in samples if s.field_position is not None]
+    assert len(positioned) >= n - 3
+    # Recovered speed must match the true speed (no attenuation).
+    late = [s.speed_yd_s for s in positioned[6:]]
+    assert float(np.median(late)) == pytest.approx(float(np.hypot(vx, 0.5)), abs=0.35)
+    # Smoothed path length must match the ground-truth route length.
+    route_len = float(
+        np.hypot(points[-1][0] - points[0][0], points[-1][1] - points[0][1])
+    )
+    smoothed_len = float(positioned[-1].distance_cum_yd)
+    assert smoothed_len == pytest.approx(route_len, rel=0.05)
+    # Direction of motion is reported and correct.
+    assert positioned[-1].direction_rad == pytest.approx(float(np.arctan2(0.5, vx)), abs=0.05)
+
+
+def test_camera_cut_refusal_then_projection_recovery() -> None:
+    """Panning camera + a hard shot change: refusal during the cut, recovery after.
+
+    This mirrors the frozen ``traj_seq_08`` scenario shape: geometry is unusable
+    for three frames (camera cut), then a re-established calibration is supplied.
+    """
+    import cv2
+
+    img = cv2.imread(BASE_IMAGE)
+    cal = calibrate_frame(img, x_start_yd=15.0)
+    n = 16
+    cut_frames = (5, 6, 7)
+    drift = np.array([[1.0, 0.0, 52.0], [0.0, 1.0, 6.0], [0.0, 0.0, 1.0]])
+    builder = PlayerTrajectoryBuilder(fps=FPS)
+    x_yd, y_yd = 24.0, 30.0
+
+    cals = []
+    observation = []
+    for t in range(n):
+        framing = cal.H @ (drift if t >= cut_frames[0] else np.eye(3))
+        obs = _calibration_with_H(cal, framing)
+        observation.append(obs)
+        if t in cut_frames:
+            cals.append(cal)
+            cals[-1] = _uncalibrated(cal, reason="camera_cut_uncalibrated")
+        else:
+            cals.append(obs)
+
+    samples = _run_stream(builder, cals, [(x_yd, y_yd)] * n, observation_cals=observation)
+    by_frame = {s.frame_id: s for s in samples}
+
+    for t in cut_frames:
+        assert by_frame[t].geometry_state == "unknown"
+        assert by_frame[t].projection_status == "calibration_refused:camera_cut_uncalibrated"
+        assert by_frame[t].field_position is None
+        assert by_frame[t].x_coord_mode == "uncalibrated"
+        assert by_frame[t].absolute_yardline is None
+
+    # Recovery: from frame 8 the re-established geometry yields correct projections.
+    for t in (8, 9, 10):
+        assert by_frame[t].field_position is not None
+        err = float(np.hypot(by_frame[t].field_position[0] - x_yd, by_frame[t].field_position[1] - y_yd))
+        assert err < 0.15
+    # Projection-recovery latency is reported, not hidden.
+    assert builder.projection_recovery_latencies_frames[0] == 3
+    assert builder.fabricated_field_positions == 0

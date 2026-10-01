@@ -195,16 +195,31 @@ def _frame_geometry(
     footpoint observations. The projection calibration is what the trajectory layer
     receives; for propagated frames it carries a deliberate Phase-2-style drift,
     and for unknown frames it is an explicit failure object.
+
+    A ``camera_cut`` entry models a hard shot change: at (and after) the cut frame
+    the camera framing jumps by a fixed pan/zoom transform, so image-space motion is
+    discontinuous and calibration must be re-established. During the declared
+    ``unknown`` cut frames the projection calibration is a failure object with
+    reason ``camera_cut_uncalibrated``.
     """
     pan = seq.get("camera_pan_px_per_frame", [0.0, 0.0])
     zoom = float(seq.get("camera_zoom_per_frame", 0.0))
     cam = _camera_matrix(pan[0] * frame, pan[1] * frame, 1.0 + zoom * frame, image_size)
+
+    cut = seq.get("camera_cut")
+    if cut is not None and frame >= int(cut["frame"]):
+        cut_params = cut.get("params", {})
+        cut_pan = cut_params.get("pan_px", [0.0, 0.0])
+        cut_zoom = float(cut_params.get("zoom", 1.0))
+        cam = _camera_matrix(cut_pan[0], cut_pan[1], cut_zoom, image_size) @ cam
+
     H_true = base_cal.H @ cam
     observation_cal = _calibration_from_H(base_cal, H_true, image_size)
 
     state = str(seq.get("calibration_states", {}).get(str(frame), "calibrated"))
-    if state == "unknown":
-        return _uncalibrated_result(image_size, "confidence_expired"), observation_cal
+    if state.startswith("unknown"):
+        reason = state.split(":", 1)[1] if ":" in state else "confidence_expired"
+        return _uncalibrated_result(image_size, reason), observation_cal
     if state.startswith("propagated"):
         age = int(state.split(":")[1]) if ":" in state else 1
         drift = _camera_matrix(PROPAGATED_DRIFT_PX_PER_AGE * age, 0.0, 1.0, image_size)
@@ -404,6 +419,15 @@ def _score_samples(
     speed_clipped = 0
     gate_evaluated = 0
     false_rejections = 0
+    observed_dominant = 0
+    inferred_dominant = 0
+    longest_run = 0
+    direction_err_deg: List[float] = []
+    smoothed_len = 0.0
+    raw_len = 0.0
+    gt_len = 0.0
+    gt_dist_per_track: List[float] = []
+    smoothed_dist_per_track: List[float] = []
 
     injected = {(int(e["gt_id"]), int(e["frame"])) for e in seq.get("outlier_events", [])}
 
@@ -464,6 +488,12 @@ def _score_samples(
             continue
 
         dominant_samples += 1
+        # Observed = the player was actually detected this frame (track not coasting
+        # and footpoint reliable). Inferred = the field estimate is dead reckoning.
+        if s.track_state == "observed":
+            observed_dominant += 1
+        if s.position_source == "predicted_dead_reckoning":
+            inferred_dominant += 1
         if s.field_position is not None:
             measured_dominant_samples += 1
 
@@ -495,13 +525,102 @@ def _score_samples(
                     )
                 )
             )
-        speed_err.append(abs(s.speed_yd_s - float(np.hypot(gt["vx_yd_s"], gt["vy_yd_s"]))))
+        gt_speed_now = float(np.hypot(gt["vx_yd_s"], gt["vy_yd_s"]))
+        if gt_speed_now > 0.5 and s.speed_yd_s > 0.3:
+            d_gt = float(np.arctan2(gt["vy_yd_s"], gt["vx_yd_s"]))
+            d_rep = s.direction_rad
+            diff = abs((d_rep - d_gt + np.pi) % (2.0 * np.pi) - np.pi)
+            direction_err_deg.append(float(np.degrees(diff)))
+        speed_err.append(abs(s.speed_yd_s - gt_speed_now))
         vel_err.append(
             float(np.hypot(s.velocity_yd_s[0] - gt["vx_yd_s"], s.velocity_yd_s[1] - gt["vy_yd_s"]))
         )
         accel_err.append(abs(s.accel_yd_s2 - float(np.hypot(gt["ax_yd_s2"], gt["ay_yd_s2"]))))
         gt_accel_mag.append(float(np.hypot(gt["ax_yd_s2"], gt["ay_yd_s2"])))
         gt_speed.append(float(np.hypot(gt["vx_yd_s"], gt["vy_yd_s"])))
+
+    # ---- identity metrics (CLEAR-style, evaluated on OBSERVED samples) ---
+    # Same definitions as the Phase 3 evaluator so Phase 3 and Phase 4 numbers are
+    # directly comparable:
+    #   IDSW (lifetime): an observed sample whose track_id differs from the track_id
+    #                    most recently observed for that ground-truth player.
+    #   FRAG           : a ground-truth player that was NOT observed at the previous
+    #                    frame and is observed again now.
+    # The lifetime IDSW is additionally split into active association swaps (the
+    # previous track still exists this frame) versus post-expiration reinitializations.
+    observed_by_gid: Dict[int, Dict[int, int]] = {}
+    for sample in samples_all:
+        gid_raw = sample.provenance.get("gt_id")
+        if gid_raw is None or sample.track_state != "observed":
+            continue
+        observed_by_gid.setdefault(int(gid_raw), {})[int(sample.frame_id)] = int(sample.track_id)
+
+    tracks_per_frame: Dict[int, set] = {}
+    for sample in samples_all:
+        tracks_per_frame.setdefault(int(sample.frame_id), set()).add(int(sample.track_id))
+
+    id_switches = 0
+    id_switches_active_swap = 0
+    id_switches_post_reinit = 0
+    track_fragmentations = 0
+    for gid, obs in sorted(observed_by_gid.items()):
+        last_track: Optional[int] = None
+        last_frame: Optional[int] = None
+        for frame in sorted(obs):
+            track = obs[frame]
+            if last_track is not None:
+                if frame - last_frame > 1:
+                    track_fragmentations += 1
+                if track != last_track:
+                    id_switches += 1
+                    if last_track in tracks_per_frame.get(frame, set()):
+                        id_switches_active_swap += 1
+                    else:
+                        id_switches_post_reinit += 1
+            last_track = track
+            last_frame = frame
+
+    # ---- motion preservation & travelled distance ----------------------
+    # Per ground-truth player, accumulate the smoothed path length, the raw
+    # (unsmoothed) projected path length, and the ground-truth route length.
+    # A smoothing stage that "smooths away" real motion would show up here as a
+    # smoothed/raw ratio well below 1.
+    for gid, ss in sorted(by_gid.items()):
+        dom = [x for x in ss if x.track_id == dominant_track.get(gid)]
+        dom.sort(key=lambda x: x.frame_id)
+        prev_sm = prev_raw = prev_gt = None
+        run = 0
+        for sample in dom:
+            gt = gt_table.get(sample.frame_id, {}).get(gid)
+            if gt is None:
+                continue
+            if sample.field_position is not None:
+                if prev_sm is not None:
+                    smoothed_len += float(
+                        np.hypot(
+                            sample.field_position[0] - prev_sm[0],
+                            sample.field_position[1] - prev_sm[1],
+                        )
+                    )
+                prev_sm = sample.field_position
+            if sample.raw_field_position is not None:
+                if prev_raw is not None:
+                    raw_len += float(
+                        np.hypot(
+                            sample.raw_field_position[0] - prev_raw[0],
+                            sample.raw_field_position[1] - prev_raw[1],
+                        )
+                    )
+                prev_raw = sample.raw_field_position
+            gt_xy = (gt["x_yd"], gt["y_yd"])
+            if prev_gt is not None:
+                gt_len += float(np.hypot(gt_xy[0] - prev_gt[0], gt_xy[1] - prev_gt[1]))
+            prev_gt = gt_xy
+            if sample.track_state == "observed":
+                run += 1
+                longest_run = max(longest_run, run)
+            else:
+                run = 0
 
     # ---- event-level outlier accounting --------------------------------
     track_at: Dict[int, Dict[int, int]] = {}
@@ -571,6 +690,19 @@ def _score_samples(
         "expected_samples": expected,
         "dominant_samples": dominant_samples,
         "measured_dominant_samples": measured_dominant_samples,
+        "observed_dominant_samples": observed_dominant,
+        "inferred_dominant_samples": inferred_dominant,
+        "observed_sample_ratio": round(observed_dominant / max(1, dominant_samples), 4),
+        "inferred_sample_ratio": round(
+            inferred_dominant / max(1, dominant_samples), 4
+        ),
+        "longest_observed_run_frames": longest_run,
+        "direction_err_median_deg": _median(direction_err_deg),
+        "smoothed_path_length_yd": round(smoothed_len, 4),
+        "raw_projection_path_length_yd": round(raw_len, 4),
+        "gt_path_length_yd": round(gt_len, 4),
+        "motion_preservation_ratio_vs_raw": round(smoothed_len / raw_len, 4) if raw_len > 0 else None,
+        "motion_preservation_ratio_vs_gt": round(smoothed_len / gt_len, 4) if gt_len > 0 else None,
         "track_completeness": round(dominant_samples / max(1, expected), 4),
         "measured_completeness": round(measured_dominant_samples / max(1, expected), 4),
         "positioned_samples": positioned_samples,
@@ -625,9 +757,26 @@ def _score_samples(
         "mean_mahalanobis_d2": round(float(np.mean(mahal_d2)), 3) if mahal_d2 else None,
         "mean_sigma_major_yd": round(float(np.mean(sigma_major)), 4) if sigma_major else None,
         "mean_sigma_minor_yd": round(float(np.mean(sigma_minor)), 4) if sigma_minor else None,
+        "id_switches": id_switches,
+        "id_switches_active_swap": id_switches_active_swap,
+        "id_switches_post_reinit": id_switches_post_reinit,
+        "track_fragmentations": track_fragmentations,
         "field_identity_changes": int(sum(max(0, len({s.track_id for s in ss}) - 1) for ss in by_gid.values())),
         "tracks_per_gt_max": int(max((len({s.track_id for s in ss}) for ss in by_gid.values()), default=0)),
         "fabricated_field_positions": int(builder.fabricated_field_positions),
+        "fabricated_trajectory_samples": int(builder.fabricated_field_positions),
+        "recovery_events_observed_gap": len(builder.recovery_latencies_frames),
+        "recovery_latency_frames_median": _median([float(v) for v in builder.recovery_latencies_frames]),
+        "recovery_latency_frames_p90": _percentile([float(v) for v in builder.recovery_latencies_frames], 90.0),
+        "recovery_latency_frames_max": (
+            int(max(builder.recovery_latencies_frames)) if builder.recovery_latencies_frames else 0
+        ),
+        "projection_recovery_events": len(builder.projection_recovery_latencies_frames),
+        "projection_recovery_latency_frames_max": (
+            int(max(builder.projection_recovery_latencies_frames))
+            if builder.projection_recovery_latencies_frames
+            else 0
+        ),
         "absolute_yardline_violations": int(abs_violations),
         "measurements_rejected_total": int(builder.measurements_rejected),
         "mean_runtime_ms_per_frame": round(runtime_ms / max(1, n_frames), 3),
@@ -699,6 +848,7 @@ _SUM_KEYS = (
     "expected_samples",
     "dominant_samples",
     "measured_dominant_samples",
+    "inferred_dominant_samples",
     "positioned_samples",
     "dead_reckoning_samples",
     "outliers_injected",
@@ -718,7 +868,19 @@ _SUM_KEYS = (
     "acceleration_clipped_samples",
     "speed_clipped_samples",
     "field_identity_changes",
+    "id_switches",
+    "id_switches_active_swap",
+    "id_switches_post_reinit",
+    "track_fragmentations",
+    "observed_dominant_samples",
+    "inferred_dominant_samples",
+    "recovery_events_observed_gap",
+    "projection_recovery_events",
     "fabricated_field_positions",
+    "fabricated_trajectory_samples",
+    "smoothed_path_length_yd",
+    "raw_projection_path_length_yd",
+    "gt_path_length_yd",
     "absolute_yardline_violations",
 )
 
@@ -749,6 +911,11 @@ def _aggregate_split(seq_scores: List[Dict[str, Any]]) -> Dict[str, Any]:
         vals = _pool(field)
         agg[field] = round(float(np.sqrt(np.mean(np.square(vals)))), 4) if vals else None
     for field in (
+        "direction_err_median_deg",
+        "recovery_latency_frames_median",
+        "recovery_latency_frames_p90",
+        "motion_preservation_ratio_vs_raw",
+        "motion_preservation_ratio_vs_gt",
         "gt_accel_mag_median_yd_s2",
         "gt_speed_median_yd_s",
         "speed_err_median_yd_s",
@@ -776,6 +943,28 @@ def _aggregate_split(seq_scores: List[Dict[str, Any]]) -> Dict[str, Any]:
     else:
         agg["smoothing_error_reduction_pct"] = None
 
+    agg["motion_preservation_ratio_vs_raw"] = (
+        round(agg["smoothed_path_length_yd"] / agg["raw_projection_path_length_yd"], 4)
+        if agg["raw_projection_path_length_yd"] > 0
+        else None
+    )
+    agg["motion_preservation_ratio_vs_gt"] = (
+        round(agg["smoothed_path_length_yd"] / agg["gt_path_length_yd"], 4)
+        if agg["gt_path_length_yd"] > 0
+        else None
+    )
+    agg["observed_sample_ratio"] = round(
+        agg["observed_dominant_samples"] / max(1, agg["dominant_samples"]), 4
+    )
+    agg["inferred_sample_ratio"] = round(
+        agg["inferred_dominant_samples"] / max(1, agg["dominant_samples"]), 4
+    )
+    agg["recovery_latency_frames_max"] = int(
+        max((int(s["recovery_latency_frames_max"] or 0) for s in seq_scores), default=0)
+    )
+    agg["projection_recovery_latency_frames_max"] = int(
+        max((int(s["projection_recovery_latency_frames_max"] or 0) for s in seq_scores), default=0)
+    )
     agg["outlier_rejection_rate"] = (
         round(agg["outliers_rejected_by_field_gate"] / agg["outliers_injected"], 4)
         if agg["outliers_injected"]
@@ -849,6 +1038,69 @@ def _determinism_check(seq_scores: List[Dict[str, Any]]) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Real-frame single-frame integration smoke test (no ground truth)
 # ---------------------------------------------------------------------------
+def _process_noise_ablation(
+    manifest: Dict[str, Any],
+    img_cache: Dict[str, Any],
+    cal_cache: Dict[str, Any],
+) -> Dict[str, Any]:
+    """A/B the only constant that could hide real motion, on TRAIN + VAL only.
+
+    The constant-velocity filter's process-noise scale sets how strongly a
+    measurement can move the state. A too-stiff setting would visibly shorten
+    travelled distance relative to ground truth. TEST is deliberately excluded
+    so this comparison cannot be used to tune on the frozen split.
+    """
+
+    class _Stiffer(PlayerTrajectoryBuilder):
+        def __init__(self, **kwargs: Any) -> None:
+            kwargs["process_accel_std_yd_s2"] = 0.5
+            super().__init__(**kwargs)
+
+    variants: Dict[str, Any] = {"process_accel_std_yd_s2=0.5": _Stiffer}
+    results: Dict[str, Any] = {}
+    for label, cls in variants.items():
+        per_split: Dict[str, Any] = {}
+        for split in ("train", "val"):
+            medians: List[float] = []
+            path_len = 0.0
+            gt_len = 0.0
+            sigmas: List[float] = []
+            for seq in [s for s in manifest["trajectory_sequences"] if s["split"] == split]:
+                path = seq["base_image_path"]
+                original = globals()["PlayerTrajectoryBuilder"]
+                globals()["PlayerTrajectoryBuilder"] = cls
+                try:
+                    scores, extras = _run_sequence(seq, img_cache[path], cal_cache[path])
+                finally:
+                    globals()["PlayerTrajectoryBuilder"] = original
+                medians.append(float(scores["field_pos_err_median_yd"]))
+                path_len += float(scores["smoothed_path_length_yd"])
+                gt_len += float(scores["gt_path_length_yd"])
+                sigmas.extend(
+                    s.sigma_major_yd
+                    for t in extras["trajectories"]
+                    for s in t.samples
+                    if s.field_position is not None
+                )
+            per_split[split] = {
+                "field_pos_err_median_yd": round(float(np.median(medians)), 4),
+                "smoothed_path_length_yd": round(path_len, 2),
+                "gt_path_length_yd": round(gt_len, 2),
+                "motion_preservation_ratio_vs_gt": round(path_len / max(1e-9, gt_len), 4),
+                "mean_sigma_major_yd": round(float(np.mean(sigmas)), 4) if sigmas else None,
+            }
+        results[label] = per_split
+
+    return {
+        "note": (
+            "Comparison of the only constant that could attenuate real motion (the filter's process-noise "
+            "acceleration scale). Measured on TRAIN + VAL only; TEST is excluded so this cannot be used to "
+            "tune the frozen split. Shipped value remains 5.0."
+        ),
+        "variants": results,
+    }
+
+
 def _real_frame_smoke() -> Dict[str, Any]:
     frame_path = "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg"
     img = cv2.imread(frame_path)
@@ -879,6 +1131,19 @@ def _real_frame_smoke() -> Dict[str, Any]:
         "samples_with_field_position": sum(1 for s in samples if s.field_position is not None),
         "samples_with_absolute_yardline": sum(1 for s in samples if s.absolute_yardline is not None),
         "fabricated_field_positions": int(builder.fabricated_field_positions),
+        "fabricated_trajectory_samples": int(builder.fabricated_field_positions),
+        "recovery_events_observed_gap": len(builder.recovery_latencies_frames),
+        "recovery_latency_frames_median": _median([float(v) for v in builder.recovery_latencies_frames]),
+        "recovery_latency_frames_p90": _percentile([float(v) for v in builder.recovery_latencies_frames], 90.0),
+        "recovery_latency_frames_max": (
+            int(max(builder.recovery_latencies_frames)) if builder.recovery_latencies_frames else 0
+        ),
+        "projection_recovery_events": len(builder.projection_recovery_latencies_frames),
+        "projection_recovery_latency_frames_max": (
+            int(max(builder.projection_recovery_latencies_frames))
+            if builder.projection_recovery_latencies_frames
+            else 0
+        ),
         "note": (
             "Single-frame smoke test only: one still frame cannot exercise multi-frame "
             "trajectory, smoothing, camera motion, or occlusion behaviour."
@@ -915,6 +1180,7 @@ def run_phase4_benchmark() -> Dict[str, Any]:
     }
 
     determinism = _determinism_check(seq_scores)
+    noise_ablation = _process_noise_ablation(manifest, img_cache, cal_cache)
     smoke = _real_frame_smoke()
 
     report = {
@@ -940,6 +1206,7 @@ def run_phase4_benchmark() -> Dict[str, Any]:
         "splits": splits,
         "sequences": seq_scores,
         "determinism_check": determinism,
+        "process_noise_ablation": noise_ablation,
         "real_frame_smoke_test": smoke,
         "limitations": [
             "Player motion is synthetic deterministic field-space ground truth projected through real per-frame homographies: an engineering fixture, not recorded NFL trajectories.",
@@ -969,7 +1236,7 @@ def _render_overview(
     splits: Dict[str, Any],
     out_dir: Path,
 ) -> None:
-    fig, axes = plt.subplots(2, 2, figsize=(14.5, 9.4))
+    fig, axes = plt.subplots(2, 2, figsize=(14.6, 10.6))
 
     # Panel 1: field-space trajectories, GT vs smoothed vs raw (camera pan sequence)
     ax = axes[0, 0]
@@ -996,45 +1263,51 @@ def _render_overview(
     )
     ax.grid(True, alpha=0.3)
 
-    # Panel 2: per-frame error with geometry-state shading (dropout/propagation sequence)
+    # Panel 2: camera-cut refusal, track re-acquisition, and projection recovery
     ax = axes[0, 1]
-    seq_id2 = "traj_seq_05_test_calibration_dropout_and_propagation"
+    seq_id2 = "traj_seq_08_test_camera_cut_refusal_and_recovery"
     ex2 = extras_by_seq[seq_id2]
-    state_colors = {"calibrated": "#e8f5e9", "propagated": "#fff8e1", "unknown": "#fdecea"}
-    n_frames = ex2["seq"]["num_frames"]
-    frame_states = []
-    for t in range(n_frames):
-        st = ex2["frame_cals"][t]
-        frame_states.append(
-            "unknown"
-            if not st.can_project()
-            else ("propagated" if st.is_temporally_propagated else "calibrated")
-        )
-    run_start = 0
-    for t in range(1, n_frames + 1):
-        if t == n_frames or frame_states[t] != frame_states[run_start]:
-            state = frame_states[run_start]
-            if state != "calibrated":
-                ax.axvspan(run_start - 0.5, t - 0.5, color=state_colors[state], zorder=0)
-            run_start = t
+    cut_cfg = ex2["seq"]["camera_cut"]
+    cut_frames = sorted(int(k) for k, v in ex2["seq"]["calibration_states"].items() if str(v).startswith("unknown"))
+    ax.axvspan(min(cut_frames) - 0.5, max(cut_frames) + 0.5, color="#fdecea", zorder=0)
+    ax.text(
+        float(np.mean(cut_frames)),
+        ax.get_ylim()[1],
+        "camera cut\n(calibration refused)",
+        ha="center",
+        va="top",
+        fontsize=8,
+        color="#b71c1c",
+    )
     for traj in ex2["trajectories"]:
         frames_, errs_ = [], []
-        for s in traj.samples:
-            gid = s.provenance.get("gt_id")
-            if gid is None or s.field_position is None:
+        for sample in traj.samples:
+            gid = sample.provenance.get("gt_id")
+            if gid is None or sample.field_position is None:
                 continue
-            gt = ex2["gt_table"][s.frame_id][int(gid)]
-            frames_.append(s.frame_id)
+            gt = ex2["gt_table"][sample.frame_id][int(gid)]
+            frames_.append(sample.frame_id)
             errs_.append(
-                float(np.hypot(s.field_position[0] - gt["x_yd"], s.field_position[1] - gt["y_yd"]))
+                float(np.hypot(sample.field_position[0] - gt["x_yd"], sample.field_position[1] - gt["y_yd"]))
             )
         if frames_:
-            ax.plot(frames_, errs_, lw=1.6, marker="o", ms=2.5, color=colors[traj.track_id % 10])
+            ax.plot(frames_, errs_, lw=1.6, marker="o", ms=2.6, color=colors[traj.track_id % 10])
     ax.set_xlabel("Frame")
     ax.set_ylabel("Field position error (yd)")
-    ax.set_title(
-        "2. Geometry-State Transitions (Test 5)\n(green = calibrated, amber = propagated, red = unknown: no position claimed)",
-        fontsize=9.5,
+    ax.set_title("2. Camera Cut (Test 8): Refusal During Cut, Recovery After", fontsize=9.5)
+    rec_lat = next(
+        x["projection_recovery_latency_frames_max"] for x in seq_scores if x["sequence_id"] == seq_id2
+    )
+    ax.text(
+        0.99,
+        0.02,
+        f"shot change @ f{cut_cfg['frame']} | refused: {cut_frames}\n"
+        f"no field position claimed while refused\nprojection-recovery latency <= {rec_lat} frames",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=7.6,
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
     )
     ax.grid(True, alpha=0.3)
 
@@ -1083,9 +1356,24 @@ def _render_overview(
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=9.5)
     ax.set_ylabel("Field position error (yd)")
-    ax.set_title(
-        "4. Split-Level Position Error: Raw vs Smoothed\n(0 fabricated positions, 0 absolute-yardline violations)",
-        fontsize=9.5,
+    notes = []
+    for k, lbl in zip(keys, ("Train", "Val", "Test")):
+        agg = splits[k]
+        notes.append(
+            f"{lbl}: observed {100.0 * (agg['observed_sample_ratio'] or 0.0):.0f}% / inferred "
+            f"{100.0 * (agg['inferred_sample_ratio'] or 0.0):.0f}%, "
+            f"path {100.0 * (agg['motion_preservation_ratio_vs_gt'] or 0.0):.0f}% of GT"
+        )
+    ax.set_title("4. Position Error: Raw vs Smoothed (0 fabricated, 0 absolute-yardline violations)", fontsize=9.5)
+    ax.text(
+        0.99,
+        0.02,
+        " | ".join(notes),
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        fontsize=7.6,
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
     )
     ax.legend(fontsize=8.5, loc="upper right")
     ax.grid(True, axis="y", alpha=0.3)
@@ -1095,7 +1383,7 @@ def _render_overview(
         fontsize=12,
         fontweight="bold",
     )
-    fig.tight_layout()
+    fig.tight_layout(h_pad=2.4, rect=(0.0, 0.0, 1.0, 0.965))
     fig.savefig(out_dir / "phase4_trajectory_overview.png", dpi=150)
     plt.close(fig)
 
