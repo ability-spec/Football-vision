@@ -1,0 +1,71 @@
+{
+  "manifest_version": "phase3_v1",
+  "description": "Phase 3 player detection, footpoint reliability, team assignment, multi-object tracking, and field projection benchmark manifest with strict train/val/test split separation. Zero thresholds are tuned on TEST.",
+  "split_protocol": {
+    "train": "Used for baseline detector morphology and tracker association parameter selection.",
+    "val": "Used for verifying footpoint unreliability flags, short-occlusion bridging, and team margin thresholds.",
+    "test": "Strictly held-out frozen evaluation split; zero thresholds tuned on TEST."
+  },
+  "tracking_sequences": [
+    {
+      "sequence_id": "trk_seq_01_train_linear_routes",
+      "title": "Train Sequence 1 — 6 Players Linear Pre-Snap Shift on Calibrated Field",
+      "split": "train",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
+      "x_start_yd": 15.0,
+      "num_frames": 10,
+      "scenario": "clean_linear_motion",
+      "description": "6 players (3 dark-jersey TEAM_A, 3 white-jersey TEAM_B) moving smoothly across 10 calibrated frames."
+    },
+    {
+      "sequence_id": "trk_seq_02_val_short_occlusion_2f",
+      "title": "Val Sequence 2 — 2-Frame Short Occlusion & Recovery (2 Players Drop Out at t=4..5)",
+      "split": "val",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
+      "x_start_yd": 15.0,
+      "num_frames": 10,
+      "scenario": "short_occlusion_2f",
+      "description": "6 players where 2 players are occluded for 2 frames (t=4..5) and re-detected at t=6; tracker preserves track_id and refuses field_position during coasting."
+    },
+    {
+      "sequence_id": "trk_seq_03_val_crossing_and_truncation",
+      "title": "Val Sequence 3 — Player Crossing & Bottom-Border Truncation Footpoint Refusal",
+      "split": "val",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-4.jpg",
+      "x_start_yd": 50.0,
+      "num_frames": 10,
+      "scenario": "crossing_and_truncation",
+      "description": "6 players including 1 bottom-border-truncated player (t=0..9) and 2 crossing players (t=4..5) whose lower-body-occluded footpoint is flagged unreliable and refused for field projection."
+    },
+    {
+      "sequence_id": "trk_seq_04_test_short_occlusion_3f_and_referee",
+      "title": "Test Sequence 4 — 3-Frame Max Short Occlusion Recovery + Striped Official UNKNOWN",
+      "split": "test",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
+      "x_start_yd": 15.0,
+      "num_frames": 10,
+      "scenario": "short_occlusion_3f_and_referee",
+      "description": "7 subjects (3 dark TEAM_A, 3 light TEAM_B, 1 striped official assigned UNKNOWN) with a 3-frame detection dropout (t=3..5) recovered at t=6 with 0 ID switches."
+    },
+    {
+      "sequence_id": "trk_seq_05_test_calibration_dropout_gating",
+      "title": "Test Sequence 5 — Calibration Dropout at t=4..6 (Image Tracking Persists, Projection Refused)",
+      "split": "test",
+      "base_image_path": "/home/user/image-search/nfl-all-22-film-pre-snap-formation-offen-5.png",
+      "x_start_yd": 80.0,
+      "num_frames": 10,
+      "scenario": "calibration_dropout_gating",
+      "description": "6 players tracked continuously across 10 frames while field calibration is invalid at t=4..6; image tracks survive with 0 ID switches while field_position is refused during t=4..6."
+    },
+    {
+      "sequence_id": "trk_seq_06_test_prolonged_occlusion_and_false_alarm",
+      "title": "Test Sequence 6 — Prolonged 5-Frame Occlusion Expiry + Clutter Rejection",
+      "split": "test",
+      "base_image_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-4.jpg",
+      "x_start_yd": 50.0,
+      "num_frames": 10,
+      "scenario": "prolonged_occlusion_expiry",
+      "description": "6 players where 1 player drops out for 5 frames (t=2..6 > max_missed_frames=3, expiring cleanly and re-initializing at t=7) plus 1 single-frame false-positive detection and 1 missed detection."
+    }
+  ]
+}

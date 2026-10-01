@@ -36,6 +36,12 @@ from football_vision.schema import (
     TrajectoryPoint,
     PlayMetric,
     PlayRecord,
+    TeamLabel,
+    FootpointEstimate,
+    PlayerDetection,
+    TeamAssignment,
+    ProjectedFieldPosition,
+    PlayerTrack,
 )
 from football_vision.calibration import (
     naive_canny_hough,
@@ -53,5 +59,15 @@ from football_vision.calibration import (
     implied_player_height_ft,
     CalibrationTracker,
 )
+from football_vision.detection import (
+    BasePlayerDetector,
+    TurfContrastPlayerDetector,
+    FixturePlayerDetector,
+    extract_footpoint,
+    extract_footpoints_for_frame,
+)
+from football_vision.identity import TorsoTeamClassifier
+from football_vision.tracking import PlayerTracker
+from football_vision.projection import FieldProjector
 
-__version__ = "0.1.0"
+__version__ = "0.3.0"

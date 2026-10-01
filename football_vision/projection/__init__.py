@@ -1,1 +1,5 @@
-"""Image-to-field coordinate projection and trajectory engine (Phase 8 & Phase 9)."""
+"""Phase 3 Field Projection module."""
+
+from football_vision.projection.projector import FieldProjector
+
+__all__ = ["FieldProjector"]

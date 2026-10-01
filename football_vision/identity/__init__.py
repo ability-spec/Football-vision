@@ -1,1 +1,5 @@
-"""Player identity (jersey OCR) and team classification subsystem (Phase 6 & Phase 7)."""
+"""Phase 3 Team Assignment and Appearance Identity module."""
+
+from football_vision.identity.team_classifier import TorsoTeamClassifier
+
+__all__ = ["TorsoTeamClassifier"]

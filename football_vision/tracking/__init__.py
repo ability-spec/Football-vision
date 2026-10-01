@@ -1,1 +1,5 @@
-"""Multi-object player and ball tracking subsystem (Phase 4 & Phase 5)."""
+"""Phase 3 Multi-Object Player Tracking module."""
+
+from football_vision.tracking.tracker import PlayerTracker
+
+__all__ = ["PlayerTracker"]

@@ -320,3 +320,156 @@ class PlayRecord:
             "events": list(self.events),
             "notes": list(self.notes),
         }
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 Schemas: Player Detection, Footpoint, Team Assignment, Tracking,
+# and Field Projection
+# ---------------------------------------------------------------------------
+
+TeamLabel = Literal["TEAM_A", "TEAM_B", "UNKNOWN"]
+
+
+@dataclass
+class FootpointEstimate:
+    """Player ground-contact estimate with explicit reliability and occlusion flags.
+
+    Never claim a reliable field position when ``is_reliable`` is False.
+    """
+
+    u_px: float
+    v_px: float
+    is_reliable: bool
+    confidence: float
+    is_partially_truncated: bool = False
+    is_near_sideline: bool = False
+    is_player_crossing: bool = False
+    is_temporarily_occluded: bool = False
+    unreliable_reason: Optional[str] = None
+
+    @property
+    def xy(self) -> Tuple[float, float]:
+        return (float(self.u_px), float(self.v_px))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class PlayerDetection:
+    """Phase 3 player detection schema independent of field calibration."""
+
+    frame_id: int
+    detection_id: str
+    bbox: Tuple[float, float, float, float]  # (x1, y1, x2, y2) in pixels
+    confidence: float
+    footpoint: Tuple[float, float]           # (u_px, v_px) bottom-center estimate
+    footpoint_estimate: FootpointEstimate
+    detector_metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "frame_id": self.frame_id,
+            "detection_id": self.detection_id,
+            "bbox": tuple(float(v) for v in self.bbox),
+            "confidence": float(self.confidence),
+            "footpoint": (float(self.footpoint[0]), float(self.footpoint[1])),
+            "footpoint_estimate": self.footpoint_estimate.to_dict(),
+            "detector_metadata": dict(self.detector_metadata),
+        }
+
+
+@dataclass
+class TeamAssignment:
+    """Baseline torso appearance team assignment result."""
+
+    team: TeamLabel
+    confidence: float
+    torso_luma: float = 0.0
+    torso_chroma: float = 0.0
+    non_turf_ratio: float = 0.0
+    reason: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class ProjectedFieldPosition:
+    """Projected player field position preserving x_coord_mode semantics.
+
+    Never invents an absolute yardline number when ``x_coord_mode != "absolute"``.
+    """
+
+    x_yd: float
+    y_yd: float
+    x_coord_mode: XCoordMode
+    calibration_confidence: float
+    footpoint_confidence: float
+    is_absolute_yardline: bool = False
+    absolute_yardline: Optional[float] = None
+    valid_metrics: Tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def xy_yd(self) -> Tuple[float, float]:
+        return (float(self.x_yd), float(self.y_yd))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class PlayerTrack:
+    """Phase 3 tracked player state across frames with gated field projection."""
+
+    track_id: int
+    frame_id: int
+    bbox: Tuple[float, float, float, float]
+    footpoint: Tuple[float, float]
+    footpoint_estimate: FootpointEstimate
+    team: TeamLabel
+    team_confidence: float
+    detection_confidence: float
+    age: int
+    missed_frames: int
+    hits: int = 1
+    field_position: Optional[Tuple[float, float]] = None
+    projected_position: Optional[ProjectedFieldPosition] = None
+    x_coord_mode: XCoordMode = "uncalibrated"
+    projection_available: bool = False
+    projection_status: str = "unprojected"
+    velocity_uv: Tuple[float, float] = (0.0, 0.0)
+    short_occlusion_recovered: bool = False
+    detector_metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "track_id": self.track_id,
+            "frame_id": self.frame_id,
+            "bbox": tuple(float(v) for v in self.bbox),
+            "footpoint": (float(self.footpoint[0]), float(self.footpoint[1])),
+            "footpoint_estimate": self.footpoint_estimate.to_dict(),
+            "team": self.team,
+            "team_confidence": float(self.team_confidence),
+            "detection_confidence": float(self.detection_confidence),
+            "age": self.age,
+            "missed_frames": self.missed_frames,
+            "hits": self.hits,
+            "field_position": (
+                (float(self.field_position[0]), float(self.field_position[1]))
+                if self.field_position is not None
+                else None
+            ),
+            "projected_position": (
+                self.projected_position.to_dict()
+                if self.projected_position is not None
+                else None
+            ),
+            "x_coord_mode": self.x_coord_mode,
+            "projection_available": self.projection_available,
+            "projection_status": self.projection_status,
+            "velocity_uv": (float(self.velocity_uv[0]), float(self.velocity_uv[1])),
+            "short_occlusion_recovered": self.short_occlusion_recovered,
+            "detector_metadata": dict(self.detector_metadata),
+        }
+
