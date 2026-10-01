@@ -42,6 +42,10 @@ from football_vision.schema import (
     TeamAssignment,
     ProjectedFieldPosition,
     PlayerTrack,
+    GeometryState,
+    PositionSource,
+    TrajectorySample,
+    FieldTrajectory,
 )
 from football_vision.calibration import (
     naive_canny_hough,
@@ -69,5 +73,17 @@ from football_vision.detection import (
 from football_vision.identity import TorsoTeamClassifier
 from football_vision.tracking import PlayerTracker
 from football_vision.projection import FieldProjector
+from football_vision.trajectory import (
+    PlayerTrajectoryBuilder,
+    ConstantVelocityFieldFilter,
+    FieldJumpGate,
+    ImageSpaceJumpGate,
+    RejectionTracker,
+    resolve_geometry_state,
+    geometry_state_is_projectable,
+    footpoint_pixel_covariance,
+    propagate_to_field_covariance,
+    sigma_ellipse,
+)
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

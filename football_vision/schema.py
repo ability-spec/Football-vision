@@ -473,3 +473,121 @@ class PlayerTrack:
             "detector_metadata": dict(self.detector_metadata),
         }
 
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 Schemas: Field-Space Trajectories, Kinematics, and Uncertainty
+# ---------------------------------------------------------------------------
+
+GeometryState = Literal["calibrated", "propagated", "unknown"]
+PositionSource = Literal["measured_smoothed", "predicted_dead_reckoning", "none"]
+
+
+@dataclass
+class TrajectorySample:
+    """Single-frame field-space trajectory sample for one track.
+
+    ``field_position`` is populated ONLY from an accepted measurement that was
+    projected with a valid geometry state (``calibrated`` / ``propagated``).
+    ``predicted_position`` is an explicitly labelled dead-reckoning estimate that
+    is NEVER a claim of true position (see ``position_source``).
+    """
+
+    track_id: int
+    frame_id: int
+    timestamp_s: float
+    geometry_state: GeometryState
+    x_coord_mode: XCoordMode
+    image_footpoint: Optional[Tuple[float, float]] = None
+    field_position: Optional[Tuple[float, float]] = None
+    raw_field_position: Optional[Tuple[float, float]] = None
+    predicted_position: Optional[Tuple[float, float]] = None
+    position_source: PositionSource = "none"
+    velocity_yd_s: Tuple[float, float] = (0.0, 0.0)
+    speed_yd_s: float = 0.0
+    accel_yd_s2: float = 0.0
+    direction_rad: float = 0.0
+    distance_cum_yd: float = 0.0
+    is_acceleration_clipped: bool = False
+    is_speed_clipped: bool = False
+    sigma_major_yd: float = 0.0
+    sigma_minor_yd: float = 0.0
+    covariance_xy: Optional[Tuple[float, float, float]] = None  # (sxx, sxy, syy)
+    uncertainty_inflated: bool = False
+    is_outlier_rejected: bool = False
+    rejection_reason: Optional[str] = None
+    is_measurement_used: bool = False
+    image_space_jump_flagged: bool = False
+    missed_frames: int = 0
+    filter_age_frames: int = 0
+    frames_since_measurement: int = 0
+    reinitialized_after_gap: bool = False
+    reinitialized_after_rejections: bool = False
+    projection_status: str = "unprojected"
+    absolute_yardline: Optional[float] = None
+    provenance: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        out = asdict(self)
+        out["image_footpoint"] = (
+            [float(self.image_footpoint[0]), float(self.image_footpoint[1])]
+            if self.image_footpoint is not None
+            else None
+        )
+        for key in ("field_position", "raw_field_position", "predicted_position"):
+            val = getattr(self, key)
+            out[key] = [float(val[0]), float(val[1])] if val is not None else None
+        out["velocity_yd_s"] = [float(self.velocity_yd_s[0]), float(self.velocity_yd_s[1])]
+        out["covariance_xy"] = (
+            [float(v) for v in self.covariance_xy] if self.covariance_xy is not None else None
+        )
+        return out
+
+
+@dataclass
+class FieldTrajectory:
+    """Persistent per-track field-space trajectory assembled from trajectory samples."""
+
+    track_id: int
+    fps: float
+    x_coord_mode: XCoordMode
+    samples: List[TrajectorySample] = field(default_factory=list)
+    detector_name: Optional[str] = None
+    notes: List[str] = field(default_factory=list)
+
+    @property
+    def n_samples(self) -> int:
+        return len(self.samples)
+
+    @property
+    def n_measured(self) -> int:
+        return sum(1 for s in self.samples if s.position_source == "measured_smoothed")
+
+    @property
+    def n_predicted(self) -> int:
+        return sum(1 for s in self.samples if s.position_source == "predicted_dead_reckoning")
+
+    def geometry_state_counts(self) -> Dict[str, int]:
+        counts: Dict[str, int] = {"calibrated": 0, "propagated": 0, "unknown": 0}
+        for s in self.samples:
+            counts[s.geometry_state] = counts.get(s.geometry_state, 0) + 1
+        return counts
+
+    @property
+    def total_distance_yd(self) -> float:
+        return float(self.samples[-1].distance_cum_yd) if self.samples else 0.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "track_id": self.track_id,
+            "fps": float(self.fps),
+            "x_coord_mode": self.x_coord_mode,
+            "detector_name": self.detector_name,
+            "n_samples": self.n_samples,
+            "n_measured": self.n_measured,
+            "n_predicted": self.n_predicted,
+            "geometry_state_counts": self.geometry_state_counts(),
+            "total_distance_yd": self.total_distance_yd,
+            "notes": list(self.notes),
+            "samples": [s.to_dict() for s in self.samples],
+        }

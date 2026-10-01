@@ -82,3 +82,38 @@ If `confidence < MIN_CALIBRATION_CONFIDENCE` (`0.45`), calibration is rejected (
 - **Camera-Cut Detection:** Computes 2D HSV histogram correlation over the central playing field (`cv2.HISTCMP_CORREL < 0.70`) and checks field-space displacement (`_jump_yd > max_jump_yd = 4.0 yd`). On a cut, prior state is immediately cleared.
 - **Inter-Frame Background Turf Propagation:** Tracks Shi-Tomasi corners on the green turf mask via forward-backward verified Lucas-Kanade optical flow (`fb_err < 1.5 px`) and RANSAC homography $\Delta H_{t-1 \to t}$, propagating $H_{\text{prop}} = H_{t-1} \cdot \Delta H_{t-1 \to t}^{-1}$.
 - **Confidence Decay & Refusal:** Each unobserved frame multiplies confidence by `decay_factor = 0.80` (`age += 1`) and marks `is_temporally_propagated = True`. Once `confidence < min_confidence` (`0.45`) or `age > max_age` (`5`), the tracker clears `H = None`, sets `failure_reason = "confidence_expired"`, and refuses projection.
+
+---
+
+# Phase 4 Addendum — Field-Space Trajectory Assumptions & Limitations
+
+## A. Geometry States (`calibrated` / `propagated` / `unknown`)
+
+- `calibrated`: the frame's `CalibrationResult` passed `can_project()` and was fitted from that frame; a projected, accepted measurement is treated as a real field observation.
+- `propagated`: the frame's calibration was carried forward by the Phase 2 `CalibrationTracker` (`is_temporally_propagated=True`). Geometry is usable, but every field covariance is inflated by `0.25 yd × propagation_age`.
+- `unknown`: no `H`, failed/expired/below-floor calibration. **No field position may be claimed.** A dead-reckoned estimate may still be reported, but only in the explicitly labelled `predicted_position` field with `position_source="predicted_dead_reckoning"`.
+
+## B. Frozen Trajectory Model Constants (a priori engineering assumptions)
+
+| Constant | Value | Status |
+| :--- | :---: | :--- |
+| Process-noise acceleration scale | `5.0 yd/s²` | Assumption (~0.5 g), not measured NFL biomechanics |
+| Innovation gate | `χ²₂ ≤ 9.21` (99% quantile) | Statistical gate; threshold never tuned on `TEST` |
+| Speed clamp / acceleration clamp | `12.0 yd/s` / `25.0 yd/s²` | Plausibility guards |
+| Dead-reckoning horizon | `3` frames | Beyond this, no position estimate is reported at all |
+| Consecutive-rejection reset | `3` | Explicit, auditable filter re-initialization |
+| Footpoint per-edge noise | `1.0 px` (floor `0.3 px`) | Assumption; measured to be optimistic at 3 px jitter |
+| Propagated-geometry drift | `0.25 yd` per propagation frame | Assumption for uncertainty inflation |
+| Gate warm-up | 2 accepted updates | Standard track initiation; threshold unchanged |
+
+## C. Uncertainty Model
+
+Field covariance = `J · Σ_px · Jᵀ` with the analytic homography Jacobian `J`, corrupted box-height scaling, a det-confidence inflation term, and an additive drift term for propagated geometry. The reported σ-ellipse is an *assumption-based* uncertainty, not a calibrated NOR/NEES estimate.
+
+## D. Measured Limitations (Phase 4 `TEST`)
+
+1. Uncertainty **under-covers** at `TEST` jitter (1.6–3.0 px): 68% band covers ~32%, 95% band ~62% of accepted measurements.
+2. The chi-square gate produces false rejections when jitter exceeds the frozen ~1 px noise assumption (`53 / 368` clean `TEST` samples).
+3. Acceleration error is bounded by the filter's process-noise floor and should not be quoted as a validated capability.
+4. Track fragmentation is unresolved: outlier-induced track spawns and out-of-sequence associations are reported but not repaired (no track merging / global re-association).
+5. The Phase 4 benchmark measures the trajectory layer on **synthetic deterministic fixture motion**; it is not evidence of NFL tracking accuracy, and image-space player-detector accuracy remains unmeasured.
