@@ -4,7 +4,17 @@ Modular computer-vision pipeline for American football broadcast and All-22 vide
 
 ---
 
-## Current Status (Phases 0-4 implemented; Phase 4 audit remediation committed, awaiting review)
+## Current Status: research prototype
+
+**0.4.1 remediation:** clean-install/CI fixes, coordinate-boundary and trajectory corrections,
+and an offline video evaluation workflow are implemented. See
+[the finding-by-finding remediation](docs/OCTOBER_REMEDIATION.md) and
+[the real-video protocol](docs/REAL_VIDEO_EVALUATION.md).
+
+**The benchmark numbers below are frozen historical results, not measurements of 0.4.1.**
+Real multi-frame detection/tracking accuracy remains unmeasured. Analytics and visualization
+modules are placeholders; the repository is not a finished broadcast-analysis product.
+
 
 - **Validated Core (`football_vision/calibration/`):**
   - 1-px morphological white-paint ridge extraction + HSV saturation gating (`S < 65`) inside turf mask
@@ -18,7 +28,7 @@ Modular computer-vision pipeline for American football broadcast and All-22 vide
   - Evaluated on 26 held-out ground-truth sideline and yard-number landmarks across 3 real NFL frames (`0.275 yd`, `0.350 yd`, `0.057 yd` median held-out error).
 - **Phase 2 (`benchmarks/evaluate_phase2_robustness.py`):** calibration robustness + temporal stress benchmark; `34` temporal refusals across 8 sequences (`0 + 0 + 1 + 10 + 6 + 7 + 3 + 7`), `0` fabricated calibrations.
 - **Phase 3 (`benchmarks/evaluate_phase3_tracking.py`):** player detection / footpoint reliability / torso-cluster team assignment / multi-object tracking / gated field projection. Box fixtures come from `FixturePlayerDetector`; image-space detector accuracy is **unmeasured**. `0` fabricated projections.
-- **Phase 4 (`benchmarks/evaluate_phase4_trajectories.py`):** field-space trajectories with persistent track state, camera-motion-safe field-space smoothing, velocity/acceleration, chi-square jump rejection, uncertainty propagation, and explicit `calibrated` / `propagated` / `unknown` geometry states. Player motion is **synthetic fixture ground truth** (`benchmark_kind = synthetic_trajectory_benchmark`); `0` fabricated field positions and `0` absolute-yardline violations. Real multi-frame trajectory accuracy is **not measured**. Uncertainty is **not statistically calibrated** (empirical coverage is reported per split, per geometry state and before/after smoothing). Acceleration is **experimental / not validated**. Image-based detector accuracy is **unmeasured** (`image_detector_quantitative_metrics = null`) — fixture pass-through counts are never detector accuracy. `TEST` is a frozen held-out split; nothing was tuned on it. See `docs/PHASE4_TRAJECTORY_REPORT.md` (generated from the benchmark JSON) and `docs/ASSUMPTIONS_AND_LIMITATIONS.md`.
+- **Phase 4 (`benchmarks/evaluate_phase4_trajectories.py`):** field-space trajectories with persistent track state, field-space smoothing within coordinate segments, velocity/acceleration, chi-square jump rejection, uncertainty propagation, and explicit `calibrated` / `propagated` / `unknown` geometry states. Player motion is **synthetic fixture ground truth** (`benchmark_kind = synthetic_trajectory_benchmark`); `0` fabricated field positions and `0` absolute-yardline violations. Real multi-frame trajectory accuracy is **not measured**. Uncertainty is **not statistically calibrated** (empirical coverage is reported per split, per geometry state and before/after smoothing). Acceleration is **experimental / not validated**. Image-based detector accuracy is **unmeasured** (`image_detector_quantitative_metrics = null`) — fixture pass-through counts are never detector accuracy. `TEST` is a frozen held-out split; nothing was tuned on it. See `docs/PHASE4_TRAJECTORY_REPORT.md` (generated from the benchmark JSON) and `docs/ASSUMPTIONS_AND_LIMITATIONS.md`.
 
 ### How to read a number in this repository
 
