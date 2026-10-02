@@ -907,7 +907,7 @@ def render(report: Dict[str, Any], *, commit: str = "(uncommitted)") -> List[str
     add("## 14. Reproducing this report")
     add("")
     add("```bash")
-    add("python3 -m pytest -v                                   # 59-test suite")
+    add("python3 -m pytest -v                                   # full test suite (count printed by pytest)")
     add("python3 benchmarks/evaluate_phase4_trajectories.py     # writes outputs/phase4_trajectory_benchmark.json + overview PNG")
     add("python3 benchmarks/render_phase4_report.py --commit $(git rev-parse --short HEAD)   # this document")
     add("```")

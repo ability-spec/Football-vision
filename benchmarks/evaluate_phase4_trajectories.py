@@ -500,6 +500,12 @@ REJECTION_ACCOUNTING_DEFINITION = {
         "unknown), never reject a measurement, so its count is reported separately and is not "
         "part of the false-rejection rate."
     ),
+    "geometry_refusal": (
+        "A sample for which no projectable field measurement existed at all (unknown geometry, "
+        "unreliable footpoint, out-of-bounds projection, or coasting past the max-gap limit). It "
+        "is accounted for in unpositioned_by_reason and is deliberately NOT counted as a "
+        "measurement rejection: no measurement existed for any gate to accept or reject."
+    ),
     "note": (
         "'Clean'/'corrupted' are harness labels from the manifest, not labels inferred from "
         "ground-truth error: this block is a harness metric, not a model-internal quantity."

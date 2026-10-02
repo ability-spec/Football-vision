@@ -1103,3 +1103,36 @@ def test_real_frame_assets_resolve_or_skip_cleanly() -> None:
         assert NFL_FRAMES_ENV in real_frames_skip_reason()
     else:
         assert real_frames_skip_reason().startswith("real NFL frame assets")
+
+
+# ---------------------------------------------------------------------------
+# 9. Label integrity: the audit vocabulary is load-bearing, so it is tested
+# ---------------------------------------------------------------------------
+def test_docs_and_json_carry_the_audit_label_vocabulary() -> None:
+    """Guard against documentation drifting back into overstatement."""
+    readme = (ROOT / "README.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "synthetic",
+        "smoke test",
+        "unmeasured",
+        "not measured",
+        "not statistically calibrated",
+        "experimental",
+        "harness-only",
+    ):
+        assert phrase in readme, f"README lost the audit label: {phrase!r}"
+
+    assumptions = (ROOT / "docs" / "ASSUMPTIONS_AND_LIMITATIONS.md").read_text(encoding="utf-8").lower()
+    for phrase in ("not statistically calibrated", "not measured", "unmeasured"):
+        assert phrase in assumptions, phrase
+
+    report = (ROOT / "docs" / "PHASE4_TRAJECTORY_REPORT.md").read_text(encoding="utf-8").lower()
+    for phrase in (
+        "synthetic_trajectory_benchmark",
+        "not_statistically_calibrated",
+        "experimental_not_validated",
+        "not_measured",
+        "single_frame_integration_smoke_test_no_ground_truth_trajectory",
+        "calibrated confidence interval",  # explicitly disclaimed, never claimed
+    ):
+        assert phrase in report, phrase

@@ -110,6 +110,8 @@ If `confidence < MIN_CALIBRATION_CONFIDENCE` (`0.45`), calibration is rejected (
 
 Field covariance = `J · Σ_px · Jᵀ` with the analytic homography Jacobian `J`, corrupted box-height scaling, a det-confidence inflation term, and an additive drift term for propagated geometry. The reported σ-ellipse is an *assumption-based* uncertainty, not a calibrated NOR/NEES estimate.
 
+**Status: `not_statistically_calibrated` — i.e. not statistically calibrated.** The reported σ-ellipse is an *assumption-based* uncertainty, not a calibrated NOR/NEES estimate, and it must not be read as a calibrated confidence interval. Empirical coverage for the current frozen `TEST` is published in `outputs/phase4_trajectory_benchmark.json` (`splits.test.uncertainty_diagnostics`) and in `docs/PHASE4_TRAJECTORY_REPORT.md` §7; the audit-era coverage figures are reconciled in §D.1 below.
+
 ## D. Measured Limitations (Phase 4 `TEST`, audit-remediation pass)
 
 All numbers below are read from `outputs/phase4_trajectory_benchmark.json` (frozen `TEST`: 4 sequences, 552
@@ -155,8 +157,22 @@ ground-truth player-frames, 577 emitted samples, 32 tracks).
   are identical on all three splits.
 * The `TEST` split gained one sequence (`traj_seq_08`, camera-cut refusal/recovery) in commit `21ed530`.
   That is a scope decision, not a retune: no threshold, constant, warm-up rule, process-noise value,
-  uncertainty model or dominant track was selected using `TEST`. The figures quoted from the earlier audit
-  (53 / 368 false rejections, 32.0% / 61.9% coverage) describe the three-sequence `TEST` of commit `282cdef`.
+  uncertainty model or dominant track was selected using `TEST`.
+* **Coverage numbers, both vintages, labelled** (the audit pair is retained for traceability; it is not
+  the current frozen value):
+
+  | Source | TEST split | 68% band | 95% band |
+  | :--- | :--- | :--- | :--- |
+  | Audit of commit `282cdef` (quoted in review) | 3 sequences | 32.0% | 61.9% |
+  | Current frozen benchmark (HEAD `outputs/phase4_trajectory_benchmark.json`) | 4 sequences (incl. camera-cut `traj_seq_08`) | 49.73% | 80.09% |
+
+  Same diagnostic in both vintages, different `TEST` inventory: the camera-cut sequence and the
+  measurement-basis change (coverage is now computed on clean accepted measurements, with the
+  corrupted-but-accepted view kept as `*_including_injected_events`) account for the difference. No
+  measured value was replaced to make the two agree. False rejections on the current frozen `TEST`:
+  56 / 379 gated clean samples (gate-only rate 14.78%;
+  the older three-sequence `TEST` figure was 53 / 368 with the wider gate+warm-up denominator,
+  12.12% on the current split).
 
 ---
 

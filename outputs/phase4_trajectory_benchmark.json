@@ -74,6 +74,7 @@
     "corrupted_sample": "A dominant-track sample at an injected outlier event (the manifest injects a known pixel jump); 'accepted' means the corrupted measurement was folded into the track.",
     "innovation_gate": "Field-space chi-square test on the Mahalanobis distance between the measurement and the constant-velocity prediction. This is the only gate that can REJECT a measurement.",
     "plausibility_gate": "Image-space footpoint jump limit. It can only FLAG a sample (and only when geometry is unknown), never reject a measurement, so its count is reported separately and is not part of the false-rejection rate.",
+    "geometry_refusal": "A sample for which no projectable field measurement existed at all (unknown geometry, unreliable footpoint, out-of-bounds projection, or coasting past the max-gap limit). It is accounted for in unpositioned_by_reason and is deliberately NOT counted as a measurement rejection: no measurement existed for any gate to accept or reject.",
     "note": "'Clean'/'corrupted' are harness labels from the manifest, not labels inferred from ground-truth error: this block is a harness metric, not a model-internal quantity."
   },
   "metric_scopes": {
@@ -287,7 +288,7 @@
       "mean_mahalanobis_d2": 2.357,
       "coverage_68_pct": 63.38,
       "coverage_95_pct": 90.85,
-      "mean_runtime_ms_per_frame": 5.905,
+      "mean_runtime_ms_per_frame": 7.428,
       "fragmentation_taxonomy": {
         "legitimate_new_track": 12,
         "active_association_swap": 0,
@@ -508,7 +509,7 @@
       "mean_mahalanobis_d2": 1.588,
       "coverage_68_pct": 76.02,
       "coverage_95_pct": 98.47,
-      "mean_runtime_ms_per_frame": 3.835,
+      "mean_runtime_ms_per_frame": 4.913,
       "fragmentation_taxonomy": {
         "legitimate_new_track": 12,
         "active_association_swap": 3,
@@ -731,7 +732,7 @@
       "mean_mahalanobis_d2": 3.885,
       "coverage_68_pct": 49.73,
       "coverage_95_pct": 80.09,
-      "mean_runtime_ms_per_frame": 3.804,
+      "mean_runtime_ms_per_frame": 4.466,
       "fragmentation_taxonomy": {
         "legitimate_new_track": 24,
         "active_association_swap": 8,
@@ -1211,8 +1212,8 @@
       "projection_recovery_latency_frames_max": 0,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 0,
-      "mean_runtime_ms_per_frame": 8.144,
-      "mean_runtime_ms_per_sample": 1.357,
+      "mean_runtime_ms_per_frame": 9.923,
+      "mean_runtime_ms_per_sample": 1.654,
       "image_space_ema_field_err_median_yd": 0.1589744660579057
     },
     {
@@ -1569,8 +1570,8 @@
       "projection_recovery_latency_frames_max": 2,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 13,
-      "mean_runtime_ms_per_frame": 3.667,
-      "mean_runtime_ms_per_sample": 0.611,
+      "mean_runtime_ms_per_frame": 4.933,
+      "mean_runtime_ms_per_sample": 0.822,
       "image_space_ema_field_err_median_yd": 0.12646122833572443
     },
     {
@@ -1927,8 +1928,8 @@
       "projection_recovery_latency_frames_max": 0,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 0,
-      "mean_runtime_ms_per_frame": 3.868,
-      "mean_runtime_ms_per_sample": 0.645,
+      "mean_runtime_ms_per_frame": 5.128,
+      "mean_runtime_ms_per_sample": 0.855,
       "image_space_ema_field_err_median_yd": 0.08428274636531674
     },
     {
@@ -2384,8 +2385,8 @@
       "projection_recovery_latency_frames_max": 5,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 5,
-      "mean_runtime_ms_per_frame": 3.801,
-      "mean_runtime_ms_per_sample": 0.572,
+      "mean_runtime_ms_per_frame": 4.699,
+      "mean_runtime_ms_per_sample": 0.707,
       "image_space_ema_field_err_median_yd": 0.1618028707395608
     },
     {
@@ -2766,8 +2767,8 @@
       "projection_recovery_latency_frames_max": 3,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 0,
-      "mean_runtime_ms_per_frame": 3.833,
-      "mean_runtime_ms_per_sample": 0.626,
+      "mean_runtime_ms_per_frame": 4.709,
+      "mean_runtime_ms_per_sample": 0.769,
       "image_space_ema_field_err_median_yd": 0.1479624816185637
     },
     {
@@ -3148,8 +3149,8 @@
       "projection_recovery_latency_frames_max": 2,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 35,
-      "mean_runtime_ms_per_frame": 3.903,
-      "mean_runtime_ms_per_sample": 0.637,
+      "mean_runtime_ms_per_frame": 4.43,
+      "mean_runtime_ms_per_sample": 0.723,
       "image_space_ema_field_err_median_yd": 0.22968127204436273
     },
     {
@@ -3532,8 +3533,8 @@
       "projection_recovery_latency_frames_max": 2,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 21,
-      "mean_runtime_ms_per_frame": 3.814,
-      "mean_runtime_ms_per_sample": 0.615,
+      "mean_runtime_ms_per_frame": 4.447,
+      "mean_runtime_ms_per_sample": 0.717,
       "image_space_ema_field_err_median_yd": 0.15379887535037867
     },
     {
@@ -3978,8 +3979,8 @@
       "projection_recovery_latency_frames_max": 5,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 3,
-      "mean_runtime_ms_per_frame": 3.665,
-      "mean_runtime_ms_per_sample": 0.553,
+      "mean_runtime_ms_per_frame": 4.278,
+      "mean_runtime_ms_per_sample": 0.646,
       "image_space_ema_field_err_median_yd": 0.11569862911579509
     }
   ],

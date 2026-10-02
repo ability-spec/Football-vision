@@ -29,6 +29,8 @@ Modular computer-vision pipeline for American football broadcast and All-22 vide
 | *smoke test* | Single-frame integration check on a real frame with **no** ground truth; it can only show "it ran / it refused". |
 | *unmeasured* | No number exists; the pipeline has not been evaluated on that quantity (image detector accuracy, real multi-frame trajectory accuracy). |
 | *experimental* | Implemented and unit-tested for mathematical correctness only (acceleration). |
+| *not statistically calibrated* | A number is reported, but it is an a priori model rather than a fitted/validated one (Phase 4 uncertainty: empirical coverage is published, the gap is explained, and no calibration factor is applied). |
+| *harness-only* | Computed by the benchmark harness from scheduled inputs or known labels, not by the pipeline (e.g. `FixturePlayerDetector` pass-through counts, injected-outlier labels). These must never be presented as detector accuracy; image-detector quantitative accuracy is *unmeasured* (`image_detector_quantitative_metrics = null`). |
 
 ---
 

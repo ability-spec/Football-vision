@@ -1,6 +1,6 @@
 # Phase 4 — Field-Space Player Trajectories: Benchmark Report
 
-Generated from `outputs/phase4_trajectory_benchmark.json` by `benchmarks/render_phase4_report.py`; every number below is read from that JSON, so the document cannot drift from the benchmark. Report and JSON are committed together in the audit-remediation commit (label: `audit-remediation working tree`), so the label is not a claim about the commit's own SHA.
+Generated from `outputs/phase4_trajectory_benchmark.json` by `benchmarks/render_phase4_report.py`; every number below is read from that JSON, so the document cannot drift from the benchmark. Report and JSON are committed together in the audit-remediation commit (label: `audit-only pass; working tree`), so the label is not a claim about the commit's own SHA.
 
 **Status: reviewed implementation of the audit-remediation pass, NOT declared final.** Phase 0/1/2/3 remain frozen; Phase 4 is the subject of this report.
 
@@ -177,6 +177,7 @@ Process-noise A/B — Comparison of the only constant that could attenuate real 
 * **corrupted_sample**: A dominant-track sample at an injected outlier event (the manifest injects a known pixel jump); 'accepted' means the corrupted measurement was folded into the track.
 * **innovation_gate**: Field-space chi-square test on the Mahalanobis distance between the measurement and the constant-velocity prediction. This is the only gate that can REJECT a measurement.
 * **plausibility_gate**: Image-space footpoint jump limit. It can only FLAG a sample (and only when geometry is unknown), never reject a measurement, so its count is reported separately and is not part of the false-rejection rate.
+* **geometry_refusal**: A sample for which no projectable field measurement existed at all (unknown geometry, unreliable footpoint, out-of-bounds projection, or coasting past the max-gap limit). It is accounted for in unpositioned_by_reason and is deliberately NOT counted as a measurement rejection: no measurement existed for any gate to accept or reject.
 * **note**: 'Clean'/'corrupted' are harness labels from the manifest, not labels inferred from ground-truth error: this block is a harness metric, not a model-internal quantity.
 
 ### 6.1 Gate scope and calibration
@@ -365,7 +366,7 @@ Real frames contribute exactly three things to this project: (a) this single-fra
 ## 14. Reproducing this report
 
 ```bash
-python3 -m pytest -v                                   # 59-test suite
+python3 -m pytest -v                                   # full test suite (count printed by pytest)
 python3 benchmarks/evaluate_phase4_trajectories.py     # writes outputs/phase4_trajectory_benchmark.json + overview PNG
 python3 benchmarks/render_phase4_report.py --commit $(git rev-parse --short HEAD)   # this document
 ```
