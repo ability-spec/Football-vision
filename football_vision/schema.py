@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, Union
-import cv2
 import numpy as np
 
 from football_vision.field_spec import (
@@ -31,6 +30,30 @@ CalibrationFailureMode = Literal[
     "camera_cut_uncalibrated",
     "confidence_expired",
 ]
+
+
+def _valid_homography(H: np.ndarray) -> bool:
+    arr = np.asarray(H, dtype=np.float64)
+    if arr.shape != (3, 3) or not np.all(np.isfinite(arr)):
+        return False
+    scale = np.max(np.abs(arr))
+    return bool(scale > 0 and np.linalg.matrix_rank(arr / scale) == 3)
+
+
+def _safe_project(H: np.ndarray, points: Sequence[Sequence[float]]) -> Optional[np.ndarray]:
+    """Refuse the whole batch at a projective horizon instead of inventing (0, 0)."""
+    arr = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    if not np.all(np.isfinite(arr)):
+        return None
+    H = np.asarray(H, dtype=np.float64)
+    H = H / np.max(np.abs(H))
+    homogeneous = np.column_stack((arr, np.ones(len(arr))))
+    mapped = homogeneous @ H.T
+    scale = np.abs(homogeneous) @ np.abs(H[2])
+    if np.any(np.abs(mapped[:, 2]) <= 1e-12 * np.maximum(scale, np.finfo(float).tiny)):
+        return None
+    result = mapped[:, :2] / mapped[:, 2:3]
+    return result if np.all(np.isfinite(result)) else None
 
 
 @dataclass
@@ -65,6 +88,8 @@ class CalibrationResult:
     is_temporally_propagated: bool = False
     propagation_age: int = 0
     diagnostics: Dict[str, Any] = field(default_factory=dict)
+    # Stable field axes/origin identity, NOT a homography/matrix revision.
+    coordinate_frame_id: Optional[str] = None
 
     @property
     def vanishing_point(self) -> Optional[Tuple[float, float]]:
@@ -114,6 +139,8 @@ class CalibrationResult:
             self.success
             and self.H is not None
             and self.H_inv is not None
+            and _valid_homography(self.H)
+            and _valid_homography(self.H_inv)
             and self.plausible_orientation_scale
             and self.x_coord_mode != "uncalibrated"
             and self.confidence >= min_confidence
@@ -130,11 +157,7 @@ class CalibrationResult:
         """
         if not self.can_project(min_confidence=min_confidence):
             return None
-        arr = np.asarray(pts_uv, dtype=np.float32).reshape(-1, 1, 2)
-        if arr.size == 0:
-            return np.zeros((0, 2), dtype=np.float64)
-        proj = cv2.perspectiveTransform(arr, self.H).reshape(-1, 2)
-        return proj.astype(np.float64)
+        return _safe_project(self.H, pts_uv)
 
     def field_to_image(
         self,
@@ -147,11 +170,7 @@ class CalibrationResult:
         """
         if not self.can_project(min_confidence=min_confidence):
             return None
-        arr = np.asarray(pts_xy_yd, dtype=np.float32).reshape(-1, 1, 2)
-        if arr.size == 0:
-            return np.zeros((0, 2), dtype=np.float64)
-        proj = cv2.perspectiveTransform(arr, self.H_inv).reshape(-1, 2)
-        return proj.astype(np.float64)
+        return _safe_project(self.H_inv, pts_xy_yd)
 
     def to_dict(self) -> Dict[str, Any]:
         """Serialize calibration metadata, confidence, and residuals to a JSON-compatible dictionary."""
@@ -183,6 +202,7 @@ class CalibrationResult:
             "is_temporally_propagated": self.is_temporally_propagated,
             "propagation_age": self.propagation_age,
             "diagnostics": dict(self.diagnostics),
+            "coordinate_frame_id": self.coordinate_frame_id,
             "runtime_ms": float(self.runtime_ms),
             "notes": list(self.notes),
         }
@@ -543,6 +563,8 @@ class TrajectorySample:
     projection_status: str = "unprojected"
     absolute_yardline: Optional[float] = None
     provenance: Dict[str, Any] = field(default_factory=dict)
+    coordinate_segment: int = 0
+    coordinate_frame_id: Optional[str] = None
 
     def __post_init__(self) -> None:
         if self.field_position is not None:
@@ -653,3 +675,4 @@ class FieldTrajectory:
             "notes": list(self.notes),
             "samples": [s.to_dict() for s in self.samples],
         }
+

@@ -7,14 +7,14 @@ smoothing, and kinematics.
 
 Design invariants
 -----------------
-1. Phase 2/3 calibration code is untouched; ``CalibrationResult`` remains the
-   geometry contract and ``FieldProjector`` remains the projection gate.
+1. ``CalibrationResult`` is the geometry contract, including coordinate-frame
+   identity; ``FieldProjector`` is the projection gate.
 2. ``field_position`` is populated ONLY from an accepted measurement projected
    with a projectable geometry state (``calibrated`` / ``propagated``) and a
    reliable, non-coasting footpoint. Dead-reckoned estimates live in a separate,
    explicitly labelled ``predicted_position`` field and are never a position claim.
-3. Smoothing runs exclusively in field space (yards), never in image space, so
-   camera pan/zoom cannot leak into the trajectory.
+3. Smoothing runs in field space within a declared coordinate segment.
+   Unrecognized calibration/origin errors can still affect motion estimates.
 4. Rejected measurements are flagged, never silently deleted. Persistent
    disagreement resets the filter explicitly (auditable via flags).
 5. ``absolute_yardline`` is only populated when ``x_coord_mode == "absolute"``.
@@ -86,6 +86,9 @@ class _TrackTrajectoryState:
     """Persistent per-track trajectory state (survives frames, keyed by track_id)."""
 
     track_id: int
+    coordinate_key: Optional[Tuple] = None
+    coordinate_segment: int = 0
+    coordinate_H: Optional[np.ndarray] = None
     filter: Optional[ConstantVelocityFieldFilter] = None
     rejections: RejectionTracker = field(default_factory=RejectionTracker)
     last_measured_xy: Optional[Tuple[float, float]] = None
@@ -135,6 +138,9 @@ class PlayerTrajectoryBuilder:
             raise ValueError("max_gap_frames must be >= 0")
         if int(gate_warmup_updates) < 0:
             raise ValueError("gate_warmup_updates must be >= 0")
+        if int(max_consecutive_rejections) < 1:
+            raise ValueError("max_consecutive_rejections must be >= 1")
+        self._last_frame_id: Optional[int] = None
         self.fps = fps_value
         self.dt_s = 1.0 / fps_value
         self.projector = projector if projector is not None else FieldProjector()
@@ -182,6 +188,7 @@ class PlayerTrajectoryBuilder:
     # -- lifecycle ---------------------------------------------------------
     def reset(self) -> None:
         """Clear all per-track state and audit counters (fresh stream)."""
+        self._last_frame_id = None
         self._states.clear()
         self._trajectories.clear()
         self._detector_names.clear()
@@ -213,6 +220,9 @@ class PlayerTrajectoryBuilder:
         calibration: Optional[CalibrationResult],
     ) -> List[TrajectorySample]:
         """Ingest one frame of Phase 3 tracks and emit one trajectory sample per track."""
+        if self._last_frame_id is not None and frame_id <= self._last_frame_id:
+            raise ValueError("frame_id must increase strictly")
+        self._last_frame_id = int(frame_id)
         t0 = time.perf_counter()
         timestamp_s = float(frame_id) / self.fps
         geometry_state: GeometryState = resolve_geometry_state(calibration)
@@ -220,12 +230,58 @@ class PlayerTrajectoryBuilder:
         extra_field_sigma_yd = self._geometry_extra_sigma_yd(calibration)
 
         samples: List[TrajectorySample] = []
+        if calibration is not None and calibration.failure_reason == "camera_cut_uncalibrated":
+            # A cut affects absent tracks too; otherwise they can return carrying
+            # predictions in the preceding shot's axes.
+            for tid, old in list(self._states.items()):
+                self._states[tid] = _TrackTrajectoryState(
+                    track_id=tid, coordinate_segment=old.coordinate_segment + 1,
+                    distance_cum_yd=old.distance_cum_yd,
+                    rejections=RejectionTracker(self._max_consecutive_rejections),
+                )
 
         for trk in tracks:
             st = self._states.get(trk.track_id)
             if st is None:
-                st = _TrackTrajectoryState(track_id=trk.track_id)
+                st = _TrackTrajectoryState(
+                    track_id=trk.track_id,
+                    rejections=RejectionTracker(self._max_consecutive_rejections),
+                )
                 self._states[trk.track_id] = st
+
+            # Never join positions in different field axes/origins. Callers using
+            # moving relative homographies must supply a stable coordinate-frame ID.
+            if projectable and calibration is not None:
+                key = (calibration.x_coord_mode, calibration.coordinate_frame_id)
+                H = calibration.H / np.max(np.abs(calibration.H))
+                changed = st.coordinate_key is not None and (
+                    key != st.coordinate_key or (
+                        calibration.coordinate_frame_id is None
+                        and calibration.x_coord_mode != "absolute"
+                        and not np.allclose(H, st.coordinate_H, rtol=1e-9, atol=1e-12)
+                    )
+                )
+                if changed:
+                    st = _TrackTrajectoryState(
+                        track_id=trk.track_id,
+                        coordinate_segment=st.coordinate_segment + 1,
+                        distance_cum_yd=st.distance_cum_yd,
+                        rejections=RejectionTracker(self._max_consecutive_rejections),
+                    )
+                    self._states[trk.track_id] = st
+                st.coordinate_key = key
+                st.coordinate_H = H.copy()
+
+            st.frames_since_measurement = (
+                int(frame_id) - st.last_measured_frame if st.last_measured_frame is not None else 0
+            )
+            expired_gap = st.frames_since_measurement > self.max_gap_frames
+            if expired_gap:
+                st.filter = None
+                st.last_measured_xy = None
+                st.last_accepted_position = None
+                st.last_position_frame = None
+                st.rejections.register(False)
 
             detector_name = str(trk.detector_metadata.get("detector_name", "")) or None
             if detector_name:
@@ -237,7 +293,7 @@ class PlayerTrajectoryBuilder:
                 calibration,
                 missed_frames=trk.missed_frames,
             )
-            image_footpoint = (float(trk.footpoint[0]), float(trk.footpoint[1]))
+            image_footpoint = (float(trk.footpoint_estimate.u_px), float(trk.footpoint_estimate.v_px))
 
             # image-space jump plausibility (informational; the only gate that
             # can run when geometry is unknown)
@@ -280,7 +336,7 @@ class PlayerTrajectoryBuilder:
             is_outlier_rejected = False
             rejection_reason: Optional[str] = None
             uncertainty_inflated = False
-            reinit_after_gap = False
+            reinit_after_gap = expired_gap and measured_xy is not None
             reinit_after_rejections = False
             # Gate transparency: the innovation statistic and the threshold it was
             # compared against are reported per sample so a reviewer can separate
@@ -291,7 +347,6 @@ class PlayerTrajectoryBuilder:
 
             in_warmup = False
             if measured_xy is not None and measurement_cov is not None:
-                st.frames_since_measurement = 0
                 if st.filter is None or not st.filter.initialized:
                     st.filter = self._new_filter()
                     v0 = (0.0, 0.0)
@@ -302,7 +357,6 @@ class PlayerTrajectoryBuilder:
                                 (measured_xy[0] - st.last_measured_xy[0]) / (gap * self.dt_s),
                                 (measured_xy[1] - st.last_measured_xy[1]) / (gap * self.dt_s),
                             )
-                            v0, _ = clip_speed(v0, max_speed_yd_s=self.max_speed_yd_s)
                             reinit_after_gap = gap > 1
                     st.filter.initialize(measured_xy, measurement_cov, timestamp_s, velocity_yd_s=v0)
                     position = st.filter.position
@@ -356,11 +410,12 @@ class PlayerTrajectoryBuilder:
                             is_measurement_used = True
 
                 if is_measurement_used:
+                    st.frames_since_measurement = 0
+                    st.rejections.register(False)
                     st.last_measured_xy = measured_xy
                     st.last_measured_frame = int(frame_id)
                     st.last_measured_velocity = st.filter.velocity
             else:
-                st.frames_since_measurement += 1
                 if st.filter is not None and st.filter.initialized:
                     if st.frames_since_measurement <= self.max_gap_frames:
                         st.filter.predict(timestamp_s)
@@ -389,6 +444,7 @@ class PlayerTrajectoryBuilder:
                 velocity, speed_clipped = clip_speed(
                     st.filter.velocity, max_speed_yd_s=self.max_speed_yd_s
                 )
+                speed_clipped = speed_clipped or st.filter.last_speed_clipped
             else:
                 velocity, speed_clipped = (0.0, 0.0), False
 
@@ -445,6 +501,7 @@ class PlayerTrajectoryBuilder:
                 "detector_name": trk.detector_metadata.get("detector_name"),
                 "detector_source": trk.detector_metadata.get("source"),
                 "team": trk.team,
+                "footpoint_reliable": bool(trk.footpoint_estimate.is_reliable),
                 "team_confidence": float(trk.team_confidence),
             }
             # Opaque passthrough, opt-in only (default empty -> no fixture/GT labels
@@ -453,7 +510,7 @@ class PlayerTrajectoryBuilder:
                 if passthrough in trk.detector_metadata:
                     provenance[passthrough] = trk.detector_metadata[passthrough]
 
-            observed = int(trk.missed_frames) == 0 and bool(trk.footpoint_estimate.is_reliable)
+            observed = int(trk.missed_frames) == 0
             if observed and st.last_observed_frame is not None:
                 gap = int(frame_id) - int(st.last_observed_frame) - 1
                 if gap > 0:
@@ -508,6 +565,8 @@ class PlayerTrajectoryBuilder:
                 projection_status=projection_status,
                 absolute_yardline=abs_yd,
                 provenance=provenance,
+                coordinate_segment=st.coordinate_segment,
+                coordinate_frame_id=st.coordinate_key[1] if st.coordinate_key is not None else None,
             )
 
             # ---- fabrication self-check (invariant, never expected to fire) --
@@ -530,6 +589,10 @@ class PlayerTrajectoryBuilder:
                     detector_name=detector_name,
                 )
                 self._trajectories[trk.track_id] = traj
+            elif mode != traj.x_coord_mode:
+                # Mixed-mode streams have no single coordinate system. Read each
+                # sample's mode and coordinate_segment; never draw across segments.
+                traj.x_coord_mode = "uncalibrated"
             traj.samples.append(sample)
 
             st.last_uv = image_footpoint
@@ -556,3 +619,4 @@ class PlayerTrajectoryBuilder:
 
     def trajectory(self, track_id: int) -> Optional[FieldTrajectory]:
         return self._trajectories.get(int(track_id))
+

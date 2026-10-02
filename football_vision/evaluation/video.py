@@ -1,0 +1,118 @@
+"""Run the untrained CPU baseline on a local video, without annotation access."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import time
+
+import cv2
+import numpy as np
+
+from football_vision import __version__, calibrate_frame
+from football_vision.calibration.tracker import CalibrationTracker
+from football_vision.detection.detector import TurfContrastPlayerDetector
+from football_vision.tracking.tracker import PlayerTracker
+from football_vision.trajectory.builder import PlayerTrajectoryBuilder
+
+
+def run_video(path: Path, *, source_kind: str, max_frames: int = 300) -> dict:
+    if source_kind not in ("real", "synthetic") or max_frames < 1:
+        raise ValueError("source_kind must be real/synthetic; max_frames must be positive")
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    capture = cv2.VideoCapture(str(path))
+    try:
+        if not capture.isOpened():
+            raise ValueError("Video could not be opened")
+        fps = float(capture.get(cv2.CAP_PROP_FPS))
+        advertised_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if not np.isfinite(fps) or fps <= 0:
+            raise ValueError("Video has no valid frame rate")
+        detector = TurfContrastPlayerDetector()
+        tracker = PlayerTracker()
+        geometry = CalibrationTracker()
+        builder = PlayerTrajectoryBuilder(fps=fps)
+        frames = []
+        start = time.perf_counter()
+        for fid in range(max_frames):
+            ok, image = capture.read()
+            if not ok:
+                if not frames or (advertised_frames > 0 and fid < advertised_frames):
+                    raise ValueError(f"Video decode failed before expected end at frame {fid}")
+                break
+            calibration = geometry.update_from_result(calibrate_frame(image), image)
+            detections = detector.detect(image, frame_id=fid)
+            tracks = tracker.update(detections, frame_id=fid, calibration=calibration)
+            samples = builder.update(tracks, frame_id=fid, calibration=calibration)
+            by_id = {s.track_id: s for s in samples}
+            players = []
+            for t in tracks:
+                s = by_id[t.track_id]
+                players.append(
+                    {
+                        "track_id": t.track_id,
+                        "bbox": list(t.bbox),
+                        "observed": t.missed_frames == 0,
+                        "field_position": s.field_position,
+                        "predicted_position": s.predicted_position,
+                        "x_coord_mode": s.x_coord_mode,
+                        "coordinate_frame_id": s.coordinate_frame_id,
+                        "coordinate_segment": s.coordinate_segment,
+                    }
+                )
+            frames.append(
+                {"frame_id": fid, "players": players, "calibration_projectable": calibration.can_project()}
+            )
+        elapsed = time.perf_counter() - start
+        code_hash = hashlib.sha256()
+        package_root = Path(__file__).resolve().parents[1]
+        for source in sorted(package_root.rglob("*.py")):
+            code_hash.update(str(source.relative_to(package_root)).encode())
+            code_hash.update(source.read_bytes())
+        return {
+            "schema_version": 1,
+            "package_version": __version__,
+            "source_kind": source_kind,
+            "video_sha256": digest.hexdigest(),
+            "pipeline_sha256": code_hash.hexdigest(),
+            "opencv_version": cv2.__version__,
+            "numpy_version": np.__version__,
+            "detector_settings": vars(detector),
+            "fps": fps,
+            "advertised_frames": advertised_frames,
+            "frames_processed": len(frames),
+            "max_frames": max_frames,
+            "wall_time_s": elapsed,
+            "processing_fps": len(frames) / elapsed,
+            "detector": "TurfContrastPlayerDetector (untrained CPU baseline)",
+            "coordinate_policy": "relative; automatic epoch boundaries are heuristic",
+            "frames": frames,
+        }
+    finally:
+        capture.release()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("video", type=Path)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--source-kind", choices=["real", "synthetic"], required=True)
+    parser.add_argument("--max-frames", type=int, default=300)
+    args = parser.parse_args()
+    try:
+        if args.out.exists():
+            raise FileExistsError(args.out)
+        result = run_video(args.video, source_kind=args.source_kind, max_frames=args.max_frames)
+        with args.out.open("x") as f:
+            json.dump(result, f, indent=2, allow_nan=False)
+    except (ValueError, OSError, cv2.error) as exc:
+        parser.exit(2, f"Video run failed: {exc}\n")
+
+
+if __name__ == "__main__":
+    main()

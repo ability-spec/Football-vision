@@ -94,9 +94,9 @@ class TurfContrastPlayerDetector(BasePlayerDetector):
         *,
         min_confidence: float = 0.40,
         nms_iou_threshold: float = 0.35,
-        min_height_frac: float = 0.042,
+        min_height_frac: float = 0.026,
         max_height_frac: float = 0.24,
-        min_width_frac: float = 0.010,
+        min_width_frac: float = 0.007,
         max_width_frac: float = 0.085,
     ) -> None:
         self.min_confidence = float(min_confidence)
@@ -158,9 +158,9 @@ class TurfContrastPlayerDetector(BasePlayerDetector):
         grad_mag = cv2.magnitude(gx, gy)
 
         num_labels, _, stats, _ = cv2.connectedComponentsWithStats(fg_clean, connectivity=8)
-        min_h = max(12.0, 0.026 * h)
+        min_h = max(12.0, self.min_height_frac * h)
         max_h = self.max_height_frac * h
-        min_w = max(6.0, 0.007 * w)
+        min_w = max(6.0, self.min_width_frac * w)
         max_w = self.max_width_frac * w
 
         candidate_boxes: List[Tuple[float, float, float, float]] = []
@@ -279,3 +279,4 @@ class FixturePlayerDetector(BasePlayerDetector):
             sideline_v_bounds_px=sideline_v_bounds_px,
             extra_metadata=metas,
         )
+

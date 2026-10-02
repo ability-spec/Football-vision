@@ -74,6 +74,7 @@ class ConstantVelocityFieldFilter:
         self.timestamp_s: float = 0.0
         self.n_updates: int = 0
         self.n_rejections: int = 0
+        self.last_speed_clipped = False
 
     # -- lifecycle ---------------------------------------------------------
     def initialize(
@@ -101,12 +102,14 @@ class ConstantVelocityFieldFilter:
         self.initialized = True
         self.n_updates = 1
         self.n_rejections = 0
+        self._clamp_speed()
 
     # -- predict / update --------------------------------------------------
     def predict(self, timestamp_s: float) -> Tuple[np.ndarray, np.ndarray]:
         """Predict the state forward to ``timestamp_s`` (no measurement)."""
         if not self.initialized:
             raise RuntimeError("filter not initialized")
+        self.last_speed_clipped = False
         dt = float(timestamp_s) - self.timestamp_s
         if dt < 0.0:
             raise ValueError("timestamps must be non-decreasing")
@@ -142,6 +145,7 @@ class ConstantVelocityFieldFilter:
         False the filter state is left at the prediction (the measurement is
         treated as an outlier and is never folded into the track).
         """
+        self.last_speed_clipped = False
         d2 = self.innovation_d2(xy_yd, cov_xy_yd2)
         accepted = (not reject_if_gated) or (d2 <= self.gate_chi2_2dof)
         if not accepted:
@@ -169,7 +173,8 @@ class ConstantVelocityFieldFilter:
 
     def _clamp_speed(self) -> None:
         speed = float(np.hypot(self.mean[2], self.mean[3]))
-        if speed > self.max_speed_yd_s and speed > 0.0:
+        self.last_speed_clipped = speed > self.max_speed_yd_s and speed > 0.0
+        if self.last_speed_clipped:
             scale = self.max_speed_yd_s / speed
             self.mean[2] *= scale
             self.mean[3] *= scale
@@ -202,3 +207,4 @@ class RawProjectionBaseline:
 
     def predict(self, timestamp_s: float) -> Optional[Tuple[float, float]]:  # pragma: no cover
         return None
+

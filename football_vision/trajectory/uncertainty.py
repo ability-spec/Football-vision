@@ -91,9 +91,13 @@ def homography_jacobian(H: np.ndarray, uv: Sequence[float]) -> np.ndarray:
     H = np.asarray(H, dtype=np.float64)
     if H.shape != (3, 3):
         raise ValueError(f"homography must be 3x3, got {H.shape}")
+    if not np.all(np.isfinite(H)) or np.max(np.abs(H)) == 0:
+        raise ValueError("homography must be finite and nonzero")
+    H = H / np.max(np.abs(H))
     u, v = float(uv[0]), float(uv[1])
     w = H[2, 0] * u + H[2, 1] * v + H[2, 2]
-    if abs(w) < 1e-12:
+    scale = abs(H[2, 0] * u) + abs(H[2, 1] * v) + abs(H[2, 2])
+    if not np.isfinite(w) or abs(w) <= 1e-12 * max(scale, np.finfo(float).tiny):
         raise ValueError("homography maps point to infinity (w ~ 0)")
     X = (H[0, 0] * u + H[0, 1] * v + H[0, 2]) / w
     Y = (H[1, 0] * u + H[1, 1] * v + H[1, 2]) / w
@@ -124,8 +128,11 @@ def propagate_to_field_covariance(
     cov_field = J @ np.asarray(cov_px, dtype=np.float64) @ J.T
 
     conf = float(calibration_confidence)
-    # 1.0 at conf == 1, 1.0 + 2.5 * (1 - conf) once confidence degrades to the floor.
-    inflation = 1.0 + 2.5 * max(0.0, min_confidence - conf) / max(1e-6, min_confidence)
+    # Engineering sigma multiplier: 1 at confidence 1, rising throughout the
+    # accepted range. This is not an empirically calibrated probability.
+    if not np.isfinite(conf):
+        raise ValueError("calibration_confidence must be finite")
+    inflation = 1.0 + 2.5 * (1.0 - np.clip(conf, min_confidence, 1.0))
     cov_field = cov_field * (inflation * inflation)
 
     if extra_field_sigma_yd > 0.0:
@@ -161,3 +168,4 @@ def mahalanobis_distance_sq(residual: Sequence[float], cov: np.ndarray) -> float
     except np.linalg.LinAlgError:
         solved = np.linalg.lstsq(cov, r, rcond=None)[0]
     return float(r @ solved)
+

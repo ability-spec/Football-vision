@@ -94,4 +94,4 @@ from football_vision.trajectory import (
     sigma_ellipse,
 )
 
-__version__ = "0.4.0"
+from football_vision._version import __version__

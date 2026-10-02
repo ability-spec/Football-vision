@@ -109,6 +109,8 @@ class CalibrationTracker:
         self.min_confidence = min_confidence
         self.cut_hist_corr_thresh = cut_hist_corr_thresh
 
+        self._coordinate_epoch = 0
+        self._input_coordinate_id: Optional[str] = None
         self.H: Optional[np.ndarray] = None
         self.age: int = 0
         self.confidence: float = 0.0
@@ -120,6 +122,8 @@ class CalibrationTracker:
 
     def reset(self) -> None:
         """Clear all temporal state (called on camera cuts or explicit reset)."""
+        self._coordinate_epoch += 1
+        self._input_coordinate_id = None
         self.H = None
         self.age = 0
         self.confidence = 0.0
@@ -216,7 +220,14 @@ class CalibrationTracker:
             H_obs = cal.H / cal.H[2, 2]
             H_prior = self._propagate_prior(dH_interframe, frame_size)
 
-            if H_prior is None or self._jump_yd(H_prior, H_obs, frame_size) > self.max_jump_yd:
+            discontinuity = (
+                H_prior is None
+                or self.x_coord_mode != cal.x_coord_mode
+                or cal.coordinate_frame_id != self._input_coordinate_id
+                or self._jump_yd(H_prior, H_obs, frame_size) > self.max_jump_yd
+            )
+            if discontinuity:
+                self._coordinate_epoch += 1
                 H_filt = H_obs
             else:
                 w_prior = self.smoothing * (self.confidence / max(1e-6, self.confidence + cal.confidence))
@@ -224,6 +235,7 @@ class CalibrationTracker:
                 blended = blended / blended[2, 2]
                 H_filt = blended if plausible_homography(blended, frame_size) else H_obs
 
+            self._input_coordinate_id = cal.coordinate_frame_id
             self.H = H_filt
             self.age = 0
             self.confidence = cal.confidence
@@ -232,6 +244,7 @@ class CalibrationTracker:
             out = replace(
                 cal,
                 success=True,
+                coordinate_frame_id=f"calibration:{self._coordinate_epoch}",
                 H=H_filt,
                 H_inv=np.linalg.inv(H_filt),
                 confidence=self.confidence,
@@ -308,6 +321,7 @@ class CalibrationTracker:
         out = replace(
             cal,
             success=True,
+            coordinate_frame_id=f"calibration:{self._coordinate_epoch}",
             H=H_prop,
             H_inv=np.linalg.inv(H_prop),
             plausible_orientation_scale=True,
@@ -375,3 +389,4 @@ class CalibrationTracker:
         if self.last_result is None:
             return None
         return self.last_result.field_to_image(pts_xy_yd, min_confidence=self.min_confidence)
+
