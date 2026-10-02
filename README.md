@@ -99,13 +99,16 @@ python3 benchmarks/evaluate_phase4_trajectories.py    # Phase 4 trajectories
 ```
 
 Reports: `docs/WEEK1_HOUGH_CALIBRATION_REPORT.md`, `docs/PHASE2_CALIBRATION_ROBUSTNESS_REPORT.md`,
-`docs/PHASE3_PERCEPTION_TRACKING_REPORT.md`, `docs/PHASE4_TRAJECTORY_REPORT.md`.
+`docs/PHASE3_PERCEPTION_TRACKING_REPORT.md`, `docs/PHASE4_TRAJECTORY_REPORT.md`,
+`docs/phase4_quantitative_audit.md` (Phase 4 quantitative audit: all-track vs dominant-track, fragmentation,
+rejection-gate, dead-reckoning, uncertainty, TEST integrity, reproducibility).
 
 `docs/PHASE4_TRAJECTORY_REPORT.md` is generated from `outputs/phase4_trajectory_benchmark.json`:
 
 ```bash
 python3 benchmarks/evaluate_phase4_trajectories.py                  # writes the JSON + overview PNG
 python3 benchmarks/render_phase4_report.py                          # renders the Markdown report
+python3 benchmarks/render_phase4_audit.py                           # renders the quantitative-audit doc
 ```
 
 Real NFL stills are third-party assets and are **not vendored**. Tests and the single-frame smoke section

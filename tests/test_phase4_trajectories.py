@@ -1136,3 +1136,106 @@ def test_docs_and_json_carry_the_audit_label_vocabulary() -> None:
         "calibrated confidence interval",  # explicitly disclaimed, never claimed
     ):
         assert phrase in report, phrase
+
+
+# ---------------------------------------------------------------------------
+# 10. Quantitative-audit invariants (all-track accounting, rejection, dead reckoning)
+# ---------------------------------------------------------------------------
+def test_split_float_sums_match_sequence_sums(benchmark) -> None:
+    """Path lengths are float quantities and must not be truncated at split level."""
+    for split in ("train", "val", "test"):
+        seqs = [s for s in benchmark["sequences"] if s["split"] == split]
+        for key in ("smoothed_path_length_yd", "raw_projection_path_length_yd", "gt_path_length_yd"):
+            exact = sum(float(s[key]) for s in seqs)
+            assert benchmark["splits"][split][key] == pytest.approx(exact, abs=1e-4), (split, key)
+
+
+def test_dead_reckoning_causes_partition_every_sequence_and_split(benchmark) -> None:
+    """Every dead-reckoned sample is caused by a rejection or by a missing measurement."""
+    for seq in benchmark["sequences"]:
+        assert (
+            int(seq["dead_reckoning_samples_from_rejection"])
+            + int(seq["dead_reckoning_samples_from_missing_measurement"])
+            == int(seq["dead_reckoning_samples"])
+        )
+    for split in ("train", "val", "test"):
+        agg = benchmark["splits"][split]
+        assert (
+            int(agg["dead_reckoning_samples_from_rejection"])
+            + int(agg["dead_reckoning_samples_from_missing_measurement"])
+            == int(agg["dead_reckoning_samples"])
+        )
+        # Reconciliation with the gate accounting: rejection-caused dead reckoning is exactly the
+        # false rejections that fell back to dead reckoning plus the corrupted rejections.
+        accounting = agg["rejection_accounting"]
+        assert int(agg["dead_reckoning_samples_from_rejection"]) == int(
+            accounting["dead_reckoned_samples_after_false_rejection"]
+        ) + int(accounting["corrupted_samples_rejected"])
+
+
+def test_estimation_path_partition_closes(benchmark) -> None:
+    """Every positioned dominant sample is an accepted measurement or a post-gap re-init sample."""
+    for seq in benchmark["sequences"]:
+        assert (
+            int(seq["accepted_measurement_samples"]) + int(seq["post_reinit_measurement_samples"])
+            == int(seq["measured_dominant_samples"])
+        )
+        assert int(seq["reinit_after_rejection_measurement_samples"]) <= int(
+            seq["accepted_measurement_samples"]
+        )
+    for split in ("train", "val", "test"):
+        agg = benchmark["splits"][split]
+        assert (
+            int(agg["accepted_measurement_samples"]) + int(agg["post_reinit_measurement_samples"])
+            == int(agg["measured_dominant_samples"])
+        )
+
+
+def test_rejection_rates_are_complementary_with_explicit_denominators(benchmark) -> None:
+    for split in ("train", "val", "test"):
+        accounting = benchmark["splits"][split]["rejection_accounting"]
+        evaluated = int(accounting["corrupted_samples_evaluated"])
+        if evaluated:
+            trr = accounting["true_rejection_rate_on_corrupted"]
+            far = accounting["false_acceptance_rate_on_corrupted"]
+            assert trr == pytest.approx(
+                accounting["corrupted_samples_rejected"] / evaluated, abs=1e-6
+            )
+            assert far == pytest.approx(
+                accounting["corrupted_samples_accepted"] / evaluated, abs=1e-6
+            )
+            assert trr + far == pytest.approx(1.0, abs=1e-6)
+        else:
+            assert accounting["true_rejection_rate_on_corrupted"] is None
+            assert accounting["false_acceptance_rate_on_corrupted"] is None
+        # Every rate must ship with its denominator in the same block.
+        assert set(accounting["denominators"]) == {
+            "false_rejection_rate",
+            "false_rejection_rate_including_warmup",
+            "true_rejection_rate_on_corrupted",
+            "false_acceptance_rate_on_corrupted",
+            "geometry_refusal",
+        }
+        for key, text in accounting["denominators"].items():
+            assert "clean_samples" in text or "corrupted_samples" in text or "unpositioned" in text, key
+
+
+def test_quantitative_audit_report_is_consistent_with_the_benchmark(benchmark) -> None:
+    """The audit document must quote the frozen JSON, not a stale copy of it."""
+    doc_path = ROOT / "docs" / "phase4_quantitative_audit.md"
+    assert doc_path.exists(), "run benchmarks/render_phase4_audit.py"
+    doc = doc_path.read_text(encoding="utf-8")
+    splits = benchmark["splits"]
+    test = splits["test"]
+    for needle in (
+        f"{test['coverage_68_pct']:.2f}%",
+        f"{test['coverage_95_pct']:.2f}%",
+        f"{100 * test['false_rejection_rate']:.2f}%",
+        f"{100 * test['dominant_fraction_of_gt_player_frames']:.2f}%",
+        benchmark["dominant_track_selection"]["rule"],
+    ):
+        assert needle in doc, needle
+    # The uncalibrated-uncertainty statement must be explicit and unmistakable.
+    assert "not statistically calibrated" in doc.lower()
+    # The historical (pre-extension) TEST figures stay labelled as historical.
+    assert "historical" in doc

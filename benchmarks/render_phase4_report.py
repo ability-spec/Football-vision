@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import statistics
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -203,9 +204,14 @@ def render(report: Dict[str, Any], *, commit: str = "(uncommitted)") -> List[str
         for rule in rules:
             agreement = sum(seq["dominant_track_alternatives"][rule]["agreeing_players"] for seq in neighbours)
             total = sum(seq["dominant_track_alternatives"][rule]["players"] for seq in neighbours)
-            alt_err = max(
-                seq["dominant_track_alternatives"][rule]["field_pos_err_median_yd"] for seq in neighbours
-            )
+            # Pooled exactly like the shipped column: median of per-sequence medians (the documented
+            # approximation used everywhere else in this report). Reporting only.
+            per_seq = [
+                float(seq["dominant_track_alternatives"][rule]["field_pos_err_median_yd"])
+                for seq in neighbours
+                if seq["dominant_track_alternatives"][rule]["field_pos_err_median_yd"] is not None
+            ]
+            alt_err = float(statistics.median(per_seq)) if per_seq else None
             rows.append(
                 [
                     f"`{split}`",
@@ -216,6 +222,13 @@ def render(report: Dict[str, Any], *, commit: str = "(uncommitted)") -> List[str
                 ]
             )
     add_many(table(["Split", "Rule", "Identical selections", "Median err under rule (yd)", "Shipped rule (yd)"], rows))
+    add(
+        "Both error columns are pooled the same way (median of per-sequence medians), so the rule column "
+        "is directly comparable with the shipped column. Both alternative rules select the same track as "
+        "the shipped rule in every player-sequence of every split, which is why the columns agree here: "
+        "the alternatives exist to detect a rule-sensitive headline number, and this benchmark has none."
+    )
+    add("")
 
     # ---------------------------------------------------------------- 3
     add("## 3. Track accounting: dominant tracks vs everything else (audit item B)")

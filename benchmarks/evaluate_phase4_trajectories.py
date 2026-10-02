@@ -894,6 +894,25 @@ def _rejection_accounting(
         "true_rejection_rate_on_corrupted": (
             round(corrupted_rejected / corrupted_evaluated, 6) if corrupted_evaluated else None
         ),
+        "false_acceptance_rate_on_corrupted": (
+            round(corrupted_accepted / corrupted_evaluated, 6) if corrupted_evaluated else None
+        ),
+        "denominators": {
+            "false_rejection_rate": "clean_samples_gate_evaluated (clean samples the gate actually evaluated)",
+            "false_rejection_rate_including_warmup": (
+                "clean_samples_gate_evaluated + clean_samples_warmup_bypassed"
+            ),
+            "true_rejection_rate_on_corrupted": (
+                "corrupted_samples_evaluated (dominant-track injected events with a raw projection)"
+            ),
+            "false_acceptance_rate_on_corrupted": (
+                "corrupted_samples_evaluated (same denominator as true_rejection_rate_on_corrupted)"
+            ),
+            "geometry_refusal_rate": (
+                "not reported as a rate: unpositioned_by_reason counts are absolute sample counts "
+                "over all emitted samples of the split"
+            ),
+        },
         "dead_reckoned_samples_after_false_rejection": int(dr_after_false_rejection),
         # Gate attribution, reported in two explicit scopes: EVERY track (what the gate
         # actually did) and DOMINANT tracks only (the scope of the clean/corrupted sample
@@ -1128,6 +1147,18 @@ def _score_samples(
     vel_err: List[float] = []
     accel_err: List[float] = []
     dr_err: List[float] = []
+    # Dead reckoning is split by CAUSE so a reader can see how much of it was forced by a
+    # false rejection versus a genuinely missing measurement (occlusion / dropout / refusal).
+    # Reporting only: no filter, gate or association behaviour depends on these lists.
+    dr_rejection_err: List[float] = []
+    dr_missing_err: List[float] = []
+    # Trajectory error is split by estimation path: the normal accepted-measurement path versus
+    # the explicit post-gap re-initialization path, reported separately instead of pooled.
+    accepted_meas_err: List[float] = []
+    post_reinit_meas_err: List[float] = []
+    # Sub-arm of the accepted path: samples whose position comes from a filter that was
+    # explicitly re-initialized after persistent rejections (a different recovery code path).
+    reinit_rejection_meas_err: List[float] = []
     # Coverage is measured on CLEAN accepted measurements: an injected outlier that the gate
     # accepted is a harness-injected fault, not evidence about the noise model. Those samples are
     # counted and reported separately (``*_including_injected_events``) so nothing is hidden.
@@ -1219,13 +1250,13 @@ def _score_samples(
                 false_rejections += 1
 
         if s.predicted_position is not None and s.position_source == "predicted_dead_reckoning":
-            dr_err.append(
-                float(
-                    np.hypot(
-                        s.predicted_position[0] - gt["x_yd"], s.predicted_position[1] - gt["y_yd"]
-                    )
+            dr_value = float(
+                np.hypot(
+                    s.predicted_position[0] - gt["x_yd"], s.predicted_position[1] - gt["y_yd"]
                 )
             )
+            dr_err.append(dr_value)
+            (dr_rejection_err if s.is_outlier_rejected else dr_missing_err).append(dr_value)
 
         if s.field_position is None and s.predicted_position is None:
             continue
@@ -1245,6 +1276,12 @@ def _score_samples(
         positioned_by_state[s.geometry_state] = positioned_by_state.get(s.geometry_state, 0) + 1
         assert gt_err is not None
         smooth_err.append(gt_err)
+        if s.reinitialized_after_gap:
+            post_reinit_meas_err.append(gt_err)
+        else:
+            accepted_meas_err.append(gt_err)
+            if s.reinitialized_after_rejections:
+                reinit_rejection_meas_err.append(gt_err)
         # Coverage/uncertainty diagnostics use ACCEPTED measurements only: rejected
         # outliers are intentionally far from the prediction and would make the
         # diagnostic meaningless. Two covariance models are compared:
@@ -1303,6 +1340,28 @@ def _score_samples(
         accel_err.append(abs(s.accel_yd_s2 - float(np.hypot(gt["ax_yd_s2"], gt["ay_yd_s2"]))))
         gt_accel_mag.append(float(np.hypot(gt["ax_yd_s2"], gt["ay_yd_s2"])))
         gt_speed.append(float(np.hypot(gt["vx_yd_s"], gt["vy_yd_s"])))
+
+    # Estimation-path partition must close: every positioned dominant-track sample was either
+    # accepted as a measurement or produced by the post-gap re-initialization path.
+    if len(accepted_meas_err) + len(post_reinit_meas_err) != measured_dominant_samples:
+        raise AssertionError(
+            f"[{seq['sequence_id']}] estimation-path mismatch: {len(accepted_meas_err)} accepted + "
+            f"{len(post_reinit_meas_err)} post-reinit != {measured_dominant_samples} positioned "
+            "dominant samples"
+        )
+    # The re-init-after-rejection arm is a SUBSET of the accepted arm, never a double count.
+    if len(reinit_rejection_meas_err) > len(accepted_meas_err):
+        raise AssertionError(
+            f"[{seq['sequence_id']}] reinit-after-rejection arm ({len(reinit_rejection_meas_err)}) "
+            f"exceeds the accepted-measurement arm ({len(accepted_meas_err)})"
+        )
+    # Dead-reckoning partition must close: a dead-reckoned sample is caused by a rejected
+    # measurement or by a missing measurement (occlusion / dropout / refused projection).
+    if len(dr_rejection_err) + len(dr_missing_err) != len(dr_err):
+        raise AssertionError(
+            f"[{seq['sequence_id']}] dead-reckoning mismatch: {len(dr_rejection_err)} from "
+            f"rejection + {len(dr_missing_err)} from missing measurement != {len(dr_err)}"
+        )
 
     # Sample accounting must close: every emitted sample is either in a dominant track, in a
     # non-dominant (fragment) track, or unattributed (no harness association). Fragmentation
@@ -1613,6 +1672,45 @@ def _score_samples(
         "dead_reckoning_samples": len(dr_err),
         "dead_reckoning_err_median_yd": _median(dr_err),
         "dead_reckoning_err_p90_yd": _percentile(dr_err, 90.0),
+        "accepted_measurement_samples": len(accepted_meas_err),
+        "accepted_measurement_err_median_yd": _median(accepted_meas_err),
+        "accepted_measurement_err_p90_yd": _percentile(accepted_meas_err, 90.0),
+        "accepted_measurement_err_rmse_yd": (
+            round(float(np.sqrt(np.mean(np.square(accepted_meas_err)))), 4)
+            if accepted_meas_err
+            else None
+        ),
+        "reinit_after_rejection_measurement_samples": len(reinit_rejection_meas_err),
+        "reinit_after_rejection_measurement_err_median_yd": _median(reinit_rejection_meas_err),
+        "reinit_after_rejection_measurement_err_rmse_yd": (
+            round(float(np.sqrt(np.mean(np.square(reinit_rejection_meas_err)))), 4)
+            if reinit_rejection_meas_err
+            else None
+        ),
+        "post_reinit_measurement_samples": len(post_reinit_meas_err),
+        "post_reinit_measurement_err_median_yd": _median(post_reinit_meas_err),
+        "post_reinit_measurement_err_p90_yd": _percentile(post_reinit_meas_err, 90.0),
+        "post_reinit_measurement_err_rmse_yd": (
+            round(float(np.sqrt(np.mean(np.square(post_reinit_meas_err)))), 4)
+            if post_reinit_meas_err
+            else None
+        ),
+        "dead_reckoning_samples_from_rejection": len(dr_rejection_err),
+        "dead_reckoning_err_from_rejection_median_yd": _median(dr_rejection_err),
+        "dead_reckoning_err_from_rejection_p90_yd": _percentile(dr_rejection_err, 90.0),
+        "dead_reckoning_err_from_rejection_rmse_yd": (
+            round(float(np.sqrt(np.mean(np.square(dr_rejection_err)))), 4)
+            if dr_rejection_err
+            else None
+        ),
+        "dead_reckoning_samples_from_missing_measurement": len(dr_missing_err),
+        "dead_reckoning_err_from_missing_measurement_median_yd": _median(dr_missing_err),
+        "dead_reckoning_err_from_missing_measurement_p90_yd": _percentile(dr_missing_err, 90.0),
+        "dead_reckoning_err_from_missing_measurement_rmse_yd": (
+            round(float(np.sqrt(np.mean(np.square(dr_missing_err)))), 4)
+            if dr_missing_err
+            else None
+        ),
         "outliers_injected": n_injected,
         "outliers_rejected_by_field_gate": outcomes["rejected_by_field_gate"],
         "outlier_rejection_rate": round(outcomes["rejected_by_field_gate"] / n_injected, 4) if n_injected else None,
@@ -1769,6 +1867,11 @@ _SUM_KEYS = (
     "inferred_dominant_samples",
     "positioned_samples",
     "dead_reckoning_samples",
+    "accepted_measurement_samples",
+    "post_reinit_measurement_samples",
+    "dead_reckoning_samples_from_rejection",
+    "dead_reckoning_samples_from_missing_measurement",
+    "reinit_after_rejection_measurement_samples",
     "outliers_injected",
     "outliers_rejected_by_field_gate",
     "outlier_events_refused_by_projection_gate",
@@ -1796,10 +1899,15 @@ _SUM_KEYS = (
     "projection_recovery_events",
     "fabricated_field_positions",
     "fabricated_trajectory_samples",
+    "absolute_yardline_violations",)
+
+# Float-valued sums (yards). These were previously integer-truncated by the count loop above,
+# which is a reporting defect: path lengths are not counts. Kept separate so the count loop can
+# stay strictly integral.
+_SUM_FLOAT_KEYS = (
     "smoothed_path_length_yd",
     "raw_projection_path_length_yd",
     "gt_path_length_yd",
-    "absolute_yardline_violations",
 )
 
 
@@ -1807,6 +1915,8 @@ def _aggregate_split(seq_scores: List[Dict[str, Any]]) -> Dict[str, Any]:
     agg: Dict[str, Any] = {"num_sequences": len(seq_scores), "num_frames": 0}
     for key in _SUM_KEYS:
         agg[key] = int(sum(int(s.get(key) or 0) for s in seq_scores))
+    for key in _SUM_FLOAT_KEYS:
+        agg[key] = round(float(sum(float(s.get(key) or 0.0) for s in seq_scores)), 4)
     agg["num_frames"] = int(sum(int(s["num_frames"]) for s in seq_scores))
     agg["track_completeness"] = round(
         agg["dominant_samples"] / max(1, agg["expected_samples"]), 4
@@ -1825,7 +1935,15 @@ def _aggregate_split(seq_scores: List[Dict[str, Any]]) -> Dict[str, Any]:
     for field in ("field_pos_err_median_yd", "raw_field_pos_err_median_yd", "field_pos_err_p90_yd"):
         vals = _pool(field)
         agg[field] = round(float(np.median(vals)), 4) if vals else None
-    for field in ("field_pos_err_rmse_yd", "velocity_rmse_yd_s"):
+    for field in (
+        "field_pos_err_rmse_yd",
+        "velocity_rmse_yd_s",
+        "accepted_measurement_err_rmse_yd",
+        "post_reinit_measurement_err_rmse_yd",
+        "reinit_after_rejection_measurement_err_rmse_yd",
+        "dead_reckoning_err_from_rejection_rmse_yd",
+        "dead_reckoning_err_from_missing_measurement_rmse_yd",
+    ):
         vals = _pool(field)
         agg[field] = round(float(np.sqrt(np.mean(np.square(vals)))), 4) if vals else None
     for field in (
@@ -1840,6 +1958,15 @@ def _aggregate_split(seq_scores: List[Dict[str, Any]]) -> Dict[str, Any]:
         "accel_mag_err_median_yd_s2",
         "dead_reckoning_err_median_yd",
         "dead_reckoning_err_p90_yd",
+        "accepted_measurement_err_median_yd",
+        "accepted_measurement_err_p90_yd",
+        "post_reinit_measurement_err_median_yd",
+        "post_reinit_measurement_err_p90_yd",
+        "reinit_after_rejection_measurement_err_median_yd",
+        "dead_reckoning_err_from_rejection_median_yd",
+        "dead_reckoning_err_from_rejection_p90_yd",
+        "dead_reckoning_err_from_missing_measurement_median_yd",
+        "dead_reckoning_err_from_missing_measurement_p90_yd",
         "spurious_track_field_err_median_yd",
         "all_matched_track_field_err_median_yd",
         "non_dominant_track_field_err_median_yd",
@@ -2003,6 +2130,29 @@ def _aggregate_split(seq_scores: List[Dict[str, Any]]) -> Dict[str, Any]:
         if rej["corrupted_samples_evaluated"]
         else None
     )
+    rej["false_acceptance_rate_on_corrupted"] = (
+        round(rej["corrupted_samples_accepted"] / rej["corrupted_samples_evaluated"], 6)
+        if rej["corrupted_samples_evaluated"]
+        else None
+    )
+    # Denominator provenance travels with the split-level rates, not only with the per-sequence
+    # block, so a reader of the split table cannot quote a rate without its base.
+    rej["denominators"] = {
+        "false_rejection_rate": "clean_samples_gate_evaluated (clean samples the gate actually evaluated)",
+        "false_rejection_rate_including_warmup": (
+            "clean_samples_gate_evaluated + clean_samples_warmup_bypassed"
+        ),
+        "true_rejection_rate_on_corrupted": (
+            "corrupted_samples_evaluated (dominant-track injected events with a raw projection)"
+        ),
+        "false_acceptance_rate_on_corrupted": (
+            "corrupted_samples_evaluated (same denominator as true_rejection_rate_on_corrupted)"
+        ),
+        "geometry_refusal": (
+            "not reported as a rate: unpositioned_by_reason counts are absolute sample counts "
+            "over the split's emitted samples"
+        ),
+    }
     rej["plausibility_gate_can_reject_measurements"] = bool(
         rej["rejections_by_image_space_plausibility_gate"]
     )
@@ -2536,6 +2686,11 @@ METRIC_SCOPES: Dict[str, List[str]] = {
         "mean_runtime_ms_per_frame",
         "mean_runtime_ms_per_sample",
         "projection_status accounting (unpositioned_by_reason)",
+        "accepted_measurement_samples",
+        "post_reinit_measurement_samples",
+        "dead_reckoning_samples_from_rejection",
+        "dead_reckoning_samples_from_missing_measurement",
+        "reinit_after_rejection_measurement_samples",
     ],
     "harness_gt_dependent": [
         "field_pos_err_median_yd",
@@ -2549,6 +2704,10 @@ METRIC_SCOPES: Dict[str, List[str]] = {
         "accel_mag_err_median_yd_s2",
         "direction_err_median_deg",
         "dead_reckoning_err_median_yd",
+        "accepted_measurement_err_median_yd",
+        "post_reinit_measurement_err_median_yd",
+        "dead_reckoning_err_from_rejection_median_yd",
+        "dead_reckoning_err_from_missing_measurement_median_yd",
         "coverage_68_pct",
         "coverage_95_pct",
         "id_switches",
@@ -2582,6 +2741,7 @@ METRIC_SCOPES: Dict[str, List[str]] = {
         "corrupted_samples_rejected",
         "corrupted_samples_accepted",
         "true_rejection_rate_on_corrupted",
+        "false_acceptance_rate_on_corrupted",
         "dead_reckoned_samples_after_false_rejection",
         "recovery_latency_frames_median",
         "recovery_latency_frames_max",

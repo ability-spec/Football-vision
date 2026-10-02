@@ -1,6 +1,6 @@
 # Phase 4 — Field-Space Player Trajectories: Benchmark Report
 
-Generated from `outputs/phase4_trajectory_benchmark.json` by `benchmarks/render_phase4_report.py`; every number below is read from that JSON, so the document cannot drift from the benchmark. Report and JSON are committed together in the audit-remediation commit (label: `audit-only pass; working tree`), so the label is not a claim about the commit's own SHA.
+Generated from `outputs/phase4_trajectory_benchmark.json` by `benchmarks/render_phase4_report.py`; every number below is read from that JSON, so the document cannot drift from the benchmark. Report and JSON are committed together in the audit-remediation commit (label: `quantitative audit pass (parent 3a2c076)`), so the label is not a claim about the commit's own SHA.
 
 **Status: reviewed implementation of the audit-remediation pass, NOT declared final.** Phase 0/1/2/3 remain frozen; Phase 4 is the subject of this report.
 
@@ -60,12 +60,14 @@ Two alternative *runtime-only* rules are evaluated on the same per-track counter
 
 | Split | Rule | Identical selections | Median err under rule (yd) | Shipped rule (yd) |
 | :--- | :--- | :--- | :--- | :--- |
-| `train` | `longest_observed_run_then_lowest_track_id` | 12/12 | 0.0359 | 0.0294 |
-| `train` | `positioned_sample_count_then_lowest_track_id` | 12/12 | 0.0359 | 0.0294 |
-| `val` | `longest_observed_run_then_lowest_track_id` | 12/12 | 0.0232 | 0.0214 |
-| `val` | `positioned_sample_count_then_lowest_track_id` | 12/12 | 0.0232 | 0.0214 |
-| `test` | `longest_observed_run_then_lowest_track_id` | 24/24 | 0.0580 | 0.0370 |
-| `test` | `positioned_sample_count_then_lowest_track_id` | 24/24 | 0.0580 | 0.0370 |
+| `train` | `longest_observed_run_then_lowest_track_id` | 12/12 | 0.0294 | 0.0294 |
+| `train` | `positioned_sample_count_then_lowest_track_id` | 12/12 | 0.0294 | 0.0294 |
+| `val` | `longest_observed_run_then_lowest_track_id` | 12/12 | 0.0214 | 0.0214 |
+| `val` | `positioned_sample_count_then_lowest_track_id` | 12/12 | 0.0214 | 0.0214 |
+| `test` | `longest_observed_run_then_lowest_track_id` | 24/24 | 0.0370 | 0.0370 |
+| `test` | `positioned_sample_count_then_lowest_track_id` | 24/24 | 0.0370 | 0.0370 |
+
+Both error columns are pooled the same way (median of per-sequence medians), so the rule column is directly comparable with the shipped column. Both alternative rules select the same track as the shipped rule in every player-sequence of every split, which is why the columns agree here: the alternatives exist to detect a rule-sensitive headline number, and this benchmark has none.
 
 ## 3. Track accounting: dominant tracks vs everything else (audit item B)
 
@@ -155,19 +157,19 @@ Categories are mutually exclusive and exhaustive over **(player, track) episodes
 
 | Metric | TRAIN | VAL | TEST (frozen) |
 | :--- | :--- | :--- | :--- |
-| Smoothed path length (yd) | 38.0 | 32.0 | 64.0 |
-| Raw projection path length (yd, jitter inflated) | 43.0 | 41.0 | 79.0 |
-| Ground-truth path length (yd) | 37.0 | 33.0 | 64.0 |
-| Smoothed / GT | 1.027 | 0.970 | 1.0000 |
-| Smoothed / raw | 0.884 | 0.780 | 0.810 |
+| Smoothed path length (yd) | 39.1 | 32.8 | 65.5 |
+| Raw projection path length (yd, jitter inflated) | 43.8 | 41.5 | 80.4 |
+| Ground-truth path length (yd) | 38.4 | 33.3 | 66.4 |
+| Smoothed / GT | 1.018 | 0.985 | 0.986 |
+| Smoothed / raw | 0.894 | 0.791 | 0.815 |
 
 Process-noise A/B — Comparison of the only constant that could attenuate real motion (the filter's process-noise acceleration scale). Measured on TRAIN + VAL only; TEST is excluded so this cannot be used to tune the frozen split. Shipped value remains 5.0. (`test_split_consulted = False`)
 
 | Split | Config | Median err (yd) | Smoothed path (yd) | GT path (yd) | Path vs GT | Mean sigma major (yd) |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `train` | shipped (5.0 yd/s²) | 0.0294 | 38.00 | 37.00 | 1.0270 | 0.0481 |
+| `train` | shipped (5.0 yd/s²) | 0.0294 | 39.13 | 38.43 | 1.0182 | 0.0481 |
 | `train` | variant (0.5 yd/s²) | 0.0273 | 39.33 | 38.43 | 1.0235 | 0.0469 |
-| `val` | shipped (5.0 yd/s²) | 0.0214 | 32.00 | 33.00 | 0.9697 | 0.0445 |
+| `val` | shipped (5.0 yd/s²) | 0.0214 | 32.83 | 33.32 | 0.9853 | 0.0445 |
 | `val` | variant (0.5 yd/s²) | 0.0221 | 32.73 | 33.32 | 0.9823 | 0.0407 |
 
 ## 6. Rejection-gate accounting (audit item D)
@@ -336,9 +338,9 @@ The values quoted in the audit for this ablation (train `48` of `264` → shippe
 
 ### 11.1 Metric scopes — which numbers are allowed to mean what
 
-* `model_observable_no_ground_truth`: `n_tracks`, `n_samples`, `geometry_state_sample_counts`, `positioned_by_geometry_state`, `samples_with_position_in_unknown_geometry`, `fabricated_field_positions`, `absolute_yardline_violations`, `measurements_rejected_total`, `filter_reinitializations`, `image_space_plausibility_flags_total`, `recovery_events_observed_gap`, `projection_recovery_events`, `gate_warmup_measurements`, `track_table`, `samples_per_track`, `mean_runtime_ms_per_frame`, `mean_runtime_ms_per_sample`, `projection_status accounting (unpositioned_by_reason)`
-* `harness_gt_dependent`: `field_pos_err_median_yd`, `field_pos_err_p90_yd`, `field_pos_err_rmse_yd`, `raw_field_pos_err_median_yd`, `all_matched_track_field_err_median_yd`, `non_dominant_track_field_err_median_yd`, `speed_err_median_yd_s`, `velocity_rmse_yd_s`, `accel_mag_err_median_yd_s2`, `direction_err_median_deg`, `dead_reckoning_err_median_yd`, `coverage_68_pct`, `coverage_95_pct`, `id_switches`, `id_switches_active_swap`, `id_switches_post_reinit`, `track_fragmentations`, `track_completeness`, `measured_completeness`, `dominant_fraction_of_gt_player_frames`, `smoothed_path_length_yd`, `raw_projection_path_length_yd`, `gt_path_length_yd`, `motion_preservation_ratio_vs_raw`, `motion_preservation_ratio_vs_gt`, `fragmentation_taxonomy`, `image_space_ema_field_err_median_yd`
-* `harness_label_dependent`: `outliers_injected`, `outliers_rejected_by_field_gate`, `outlier_events_absorbed_into_track`, `outlier_events_spawning_spurious_track`, `outlier_events_refused_by_projection_gate`, `false_rejections`, `false_rejection_rate`, `false_rejection_rate_including_warmup`, `clean_samples_gate_evaluated`, `clean_samples_accepted`, `clean_samples_rejected`, `corrupted_samples_evaluated`, `corrupted_samples_rejected`, `corrupted_samples_accepted`, `true_rejection_rate_on_corrupted`, `dead_reckoned_samples_after_false_rejection`, `recovery_latency_frames_median`, `recovery_latency_frames_max`, `projection_recovery_latency_frames_max`, `gate_warmup_ablation`, `outlier_event_details`
+* `model_observable_no_ground_truth`: `n_tracks`, `n_samples`, `geometry_state_sample_counts`, `positioned_by_geometry_state`, `samples_with_position_in_unknown_geometry`, `fabricated_field_positions`, `absolute_yardline_violations`, `measurements_rejected_total`, `filter_reinitializations`, `image_space_plausibility_flags_total`, `recovery_events_observed_gap`, `projection_recovery_events`, `gate_warmup_measurements`, `track_table`, `samples_per_track`, `mean_runtime_ms_per_frame`, `mean_runtime_ms_per_sample`, `projection_status accounting (unpositioned_by_reason)`, `accepted_measurement_samples`, `post_reinit_measurement_samples`, `dead_reckoning_samples_from_rejection`, `dead_reckoning_samples_from_missing_measurement`, `reinit_after_rejection_measurement_samples`
+* `harness_gt_dependent`: `field_pos_err_median_yd`, `field_pos_err_p90_yd`, `field_pos_err_rmse_yd`, `raw_field_pos_err_median_yd`, `all_matched_track_field_err_median_yd`, `non_dominant_track_field_err_median_yd`, `speed_err_median_yd_s`, `velocity_rmse_yd_s`, `accel_mag_err_median_yd_s2`, `direction_err_median_deg`, `dead_reckoning_err_median_yd`, `accepted_measurement_err_median_yd`, `post_reinit_measurement_err_median_yd`, `dead_reckoning_err_from_rejection_median_yd`, `dead_reckoning_err_from_missing_measurement_median_yd`, `coverage_68_pct`, `coverage_95_pct`, `id_switches`, `id_switches_active_swap`, `id_switches_post_reinit`, `track_fragmentations`, `track_completeness`, `measured_completeness`, `dominant_fraction_of_gt_player_frames`, `smoothed_path_length_yd`, `raw_projection_path_length_yd`, `gt_path_length_yd`, `motion_preservation_ratio_vs_raw`, `motion_preservation_ratio_vs_gt`, `fragmentation_taxonomy`, `image_space_ema_field_err_median_yd`
+* `harness_label_dependent`: `outliers_injected`, `outliers_rejected_by_field_gate`, `outlier_events_absorbed_into_track`, `outlier_events_spawning_spurious_track`, `outlier_events_refused_by_projection_gate`, `false_rejections`, `false_rejection_rate`, `false_rejection_rate_including_warmup`, `clean_samples_gate_evaluated`, `clean_samples_accepted`, `clean_samples_rejected`, `corrupted_samples_evaluated`, `corrupted_samples_rejected`, `corrupted_samples_accepted`, `true_rejection_rate_on_corrupted`, `false_acceptance_rate_on_corrupted`, `dead_reckoned_samples_after_false_rejection`, `recovery_latency_frames_median`, `recovery_latency_frames_max`, `projection_recovery_latency_frames_max`, `gate_warmup_ablation`, `outlier_event_details`
 
 Harness-only metrics are named as such (`harness_gt_dependent`, `harness_label_dependent`) so they cannot be mistaken for quantities a deployed system could compute about itself. The image-detector error/accuracy metrics remain out of scope: `image_detector_quantitative_metrics = None`.
 
