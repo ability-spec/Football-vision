@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from football_vision.data_paths import require_nfl_frame  # noqa: E402
 from football_vision import (
     CalibrationResult,
     CalibrationTracker,
@@ -294,8 +295,11 @@ def run_phase2_benchmark() -> Dict[str, Any]:
     # -----------------------------------------------------------------------
     # 2. Temporal Sequence Stress Tests (8 sequences x 12 frames = 96 frames)
     # -----------------------------------------------------------------------
-    img_sea = cv2.imread("/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
-    img_nyj = cv2.imread("/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-4.jpg")
+    # The real NFL stills are third-party assets that are not vendored: resolve them through
+    # football_vision.data_paths (FOOTBALL_VISION_NFL_FRAMES) so the benchmark runs anywhere the
+    # assets are present, and fails with an actionable message where they are not.
+    img_sea = cv2.imread(str(require_nfl_frame("nfl-game-broadcast-screenshot-1st-and-10-5.jpg")))
+    img_nyj = cv2.imread(str(require_nfl_frame("nfl-game-broadcast-screenshot-1st-and-10-4.jpg")))
 
     # Cache direct calibrations on identical frames to keep benchmark fast & deterministic
     temporal_sequences_out = []

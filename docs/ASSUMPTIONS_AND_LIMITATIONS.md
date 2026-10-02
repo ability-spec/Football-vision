@@ -110,13 +110,53 @@ If `confidence < MIN_CALIBRATION_CONFIDENCE` (`0.45`), calibration is rejected (
 
 Field covariance = `J · Σ_px · Jᵀ` with the analytic homography Jacobian `J`, corrupted box-height scaling, a det-confidence inflation term, and an additive drift term for propagated geometry. The reported σ-ellipse is an *assumption-based* uncertainty, not a calibrated NOR/NEES estimate.
 
-## D. Measured Limitations (Phase 4 `TEST`)
+## D. Measured Limitations (Phase 4 `TEST`, audit-remediation pass)
 
-1. Uncertainty **under-covers** at `TEST` jitter (1.6–3.0 px): 68% band covers ~32%, 95% band ~62% of accepted measurements.
-2. The chi-square gate produces false rejections when jitter exceeds the frozen ~1 px noise assumption (`53 / 368` clean `TEST` samples).
-3. Acceleration error is bounded by the filter's process-noise floor and should not be quoted as a validated capability.
-4. Track fragmentation is unresolved: outlier-induced track spawns and out-of-sequence associations are reported but not repaired (no track merging / global re-association).
-5. The Phase 4 benchmark measures the trajectory layer on **synthetic deterministic fixture motion**; it is not evidence of NFL tracking accuracy, and image-space player-detector accuracy remains unmeasured.
+All numbers below are read from `outputs/phase4_trajectory_benchmark.json` (frozen `TEST`: 4 sequences, 552
+ground-truth player-frames, 577 emitted samples, 32 tracks).
+
+1. Uncertainty **under-covers**, unevenly. On accepted clean measurements the aggregate 68% band covers
+   `49.73%` and the 95% band `80.09%`, but per sequence the 68% coverage ranges
+   `14.4%`–`100.0%`. The worst case is the 1.6 px-jitter
+   sequence (`camera_pan_zoom_occlusion`, `14.4%` measured), where the frozen footpoint-noise
+   assumption predicts `25.0%` — i.e. the a priori noise model, not a coding error, is
+   the dominant cause. The scale the data would need for the reported covariance is k² = `2.157`
+   on `TEST`; the TRAIN/VAL-fitted value is recorded but deliberately **not applied**.
+2. The chi-square gate produces false rejections when injected jitter exceeds the frozen ~1 px noise
+   assumption: `56 / 379` clean gated `TEST` samples (`14.78%`; the
+   legacy-style rate over gated+warm-up is `12.12%`, with `83` warm-up samples that
+   bypass the gate by design). The two counters are reported separately so neither is mistaken for the other.
+3. Acceleration error is bounded by the filter's process-noise floor; the metric is labelled
+   `experimental_not_validated` and must not be quoted as a validated capability.
+4. Track fragmentation is real and reported, not repaired: `TEST` contains 8 active-association swaps, 1
+   outlier-induced spawn and 9 fragment tracks excluded from the dominant-track metrics (24 legitimate
+   tracks). One `TEST` track and one `VAL` track carry samples with **two different player labels** — the
+   tracker keeps a `track_id` alive across a player change. Samples are scored against the player they claim
+   (CLEAR per-frame convention) and the contamination is listed per sequence under `identity_contamination`.
+5. The benchmark measures the trajectory layer on **synthetic deterministic fixture motion**; it is not
+   evidence of NFL tracking accuracy. **Real multi-frame trajectory accuracy is not measured**, and
+   image-space player-detector accuracy remains unmeasured (`image_detector_quantitative_metrics = null`).
+
+### D.1 Ambiguities kept explicit rather than resolved
+
+* The dominant track for each player is chosen by lifetime sample count (ties → lowest `track_id`) from
+  runtime-observable counters only; every fragment track is reported separately. Two alternative
+  runtime-only rules select the same track in all 12/12 TRAIN, 12/12 VAL and 24/24 TEST player-sequences,
+  and their median error (0.0580 yd on `TEST`) differs from the dominant-only headline (0.0370 yd), so the
+  dependence on the rule is visible instead of implicit.
+* Coverage is measured on clean accepted measurements; corrupted-but-accepted samples are counted and
+  included in the `*_including_injected_events` variants so both views remain available.
+* **No headline metric moved in the audit-remediation commit.** The remediation added accounting,
+  labels, refusal invariants and diagnostics; it changed no threshold, constant or selection rule. The
+  claim is checkable without trusting this document:
+  `git show <previous-commit>:outputs/phase4_trajectory_benchmark.json > /tmp/before.json` and compare the
+  `splits.*` error/identity/rejection/coverage fields with the committed JSON — `field_pos_err_median_yd`,
+  `id_switches`, `false_rejections`, `coverage_68_pct`, `track_completeness` and `fabricated_field_positions`
+  are identical on all three splits.
+* The `TEST` split gained one sequence (`traj_seq_08`, camera-cut refusal/recovery) in commit `21ed530`.
+  That is a scope decision, not a retune: no threshold, constant, warm-up rule, process-noise value,
+  uncertainty model or dominant track was selected using `TEST`. The figures quoted from the earlier audit
+  (53 / 368 false rejections, 32.0% / 61.9% coverage) describe the three-sequence `TEST` of commit `282cdef`.
 
 ---
 

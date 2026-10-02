@@ -18,6 +18,11 @@ Design invariants
 4. Rejected measurements are flagged, never silently deleted. Persistent
    disagreement resets the filter explicitly (auditable via flags).
 5. ``absolute_yardline`` is only populated when ``x_coord_mode == "absolute"``.
+6. **No ground truth.** This module never reads, infers, or forwards a
+   ground-truth identifier or coordinate. Benchmark harnesses may request opaque
+   detector-metadata passthrough explicitly via ``provenance_passthrough_keys``;
+   the default is empty, so a production call site cannot leak fixture labels into
+   a trajectory by accident.
 """
 
 from __future__ import annotations
@@ -119,9 +124,19 @@ class PlayerTrajectoryBuilder:
         footpoint_edge_sigma_px: float = FOOTPOINT_EDGE_SIGMA_PX,
         extra_sigma_px: float = 0.0,
         gate_warmup_updates: int = DEFAULT_GATE_WARMUP_UPDATES,
+        provenance_passthrough_keys: Sequence[str] = (),
     ) -> None:
-        self.fps = float(fps)
-        self.dt_s = 1.0 / max(1e-6, float(fps))
+        fps_value = float(fps)
+        if not np.isfinite(fps_value) or fps_value <= 0.0:
+            # A non-positive/NaN frame rate silently mis-scales every timestamp, velocity
+            # and acceleration in the trajectory; refuse it instead of hiding it.
+            raise ValueError(f"fps must be a positive finite number, got {fps!r}")
+        if int(max_gap_frames) < 0:
+            raise ValueError("max_gap_frames must be >= 0")
+        if int(gate_warmup_updates) < 0:
+            raise ValueError("gate_warmup_updates must be >= 0")
+        self.fps = fps_value
+        self.dt_s = 1.0 / fps_value
         self.projector = projector if projector is not None else FieldProjector()
         self.max_speed_yd_s = float(max_speed_yd_s)
         self.max_accel_yd_s2 = float(max_accel_yd_s2)
@@ -129,12 +144,15 @@ class PlayerTrajectoryBuilder:
         self.propagated_drift_yd_per_age = float(propagated_drift_yd_per_age)
         self.footpoint_edge_sigma_px = float(footpoint_edge_sigma_px)
         self.extra_sigma_px = float(extra_sigma_px)
+        # Opaque detector-metadata passthrough. Empty by default: the trajectory
+        # layer must not know about fixture/ground-truth labels unless a benchmark
+        # harness explicitly asks for them (audit remediation, no GT in production).
+        self.provenance_passthrough_keys = tuple(str(k) for k in provenance_passthrough_keys)
         # Track-initiation warm-up: while a track has fewer than this many accepted
         # updates its velocity is not yet estimable, so the innovation gate is not
         # statistically meaningful and is bypassed. The gate THRESHOLD is unchanged;
         # this is standard M-of-N track initiation, not a threshold relaxation.
         self.gate_warmup_updates = int(gate_warmup_updates)
-        self.warmup_measurements: int = 0
 
         self.field_gate = FieldJumpGate(gate_chi2_2dof)
         self.image_gate = ImageSpaceJumpGate(image_jump_max_speed_px_per_frame)
@@ -155,13 +173,15 @@ class PlayerTrajectoryBuilder:
         self.recovery_latencies_frames: List[int] = []
         self.projection_recovery_latencies_frames: List[int] = []
         self.samples_emitted: int = 0
-        self.measurements_rejected: int = 0
+        self.measurements_rejected: int = 0          # innovation (field Mahalanobis) gate
+        self.image_jump_flags: int = 0               # plausibility gate (flags only)
         self.filter_reinitializations: int = 0
         self.warmup_measurements: int = 0
         self.runtime_ms: float = 0.0
 
     # -- lifecycle ---------------------------------------------------------
     def reset(self) -> None:
+        """Clear all per-track state and audit counters (fresh stream)."""
         self._states.clear()
         self._trajectories.clear()
         self._detector_names.clear()
@@ -170,6 +190,7 @@ class PlayerTrajectoryBuilder:
         self.projection_recovery_latencies_frames = []
         self.samples_emitted = 0
         self.measurements_rejected = 0
+        self.image_jump_flags = 0
         self.filter_reinitializations = 0
         self.warmup_measurements = 0
         self.runtime_ms = 0.0
@@ -228,6 +249,8 @@ class PlayerTrajectoryBuilder:
                 else 1,
             )
             image_jump_flagged = img_decision.rejected and geometry_state == "unknown"
+            if image_jump_flagged:
+                self.image_jump_flags += 1
 
             measured_xy: Optional[Tuple[float, float]] = None
             measurement_cov: Optional[np.ndarray] = None
@@ -259,6 +282,12 @@ class PlayerTrajectoryBuilder:
             uncertainty_inflated = False
             reinit_after_gap = False
             reinit_after_rejections = False
+            # Gate transparency: the innovation statistic and the threshold it was
+            # compared against are reported per sample so a reviewer can separate
+            # "the gate rejected bad data" from "the gate rejected good data".
+            # ``None`` means no gate was applied (track-initiation warm-up).
+            gate_statistic: Optional[float] = None
+            gate_threshold: Optional[float] = None
 
             in_warmup = False
             if measured_xy is not None and measurement_cov is not None:
@@ -294,6 +323,8 @@ class PlayerTrajectoryBuilder:
                             measured_xy,
                             st.filter.cov[np.ix_([0, 1], [0, 1])] + measurement_cov,
                         )
+                        gate_statistic = float(decision.statistic)
+                        gate_threshold = float(decision.threshold)
                     if decision.accepted:
                         _, _, _, accepted = st.filter.update(
                             measured_xy, measurement_cov, reject_if_gated=not in_warmup
@@ -399,6 +430,16 @@ class PlayerTrajectoryBuilder:
                     float(position_cov[0, 1]),
                     float(position_cov[1, 1]),
                 )
+            # The raw measurement covariance (footpoint + propagation drift, before
+            # any filter/inflation step) is reported separately so the evaluator can
+            # show uncertainty coverage before and after the smoothing stage.
+            meas_cov_tuple: Optional[Tuple[float, float, float]] = None
+            if measurement_cov is not None:
+                meas_cov_tuple = (
+                    float(measurement_cov[0, 0]),
+                    float(measurement_cov[0, 1]),
+                    float(measurement_cov[1, 1]),
+                )
 
             provenance: Dict[str, Any] = {
                 "detector_name": trk.detector_metadata.get("detector_name"),
@@ -406,7 +447,9 @@ class PlayerTrajectoryBuilder:
                 "team": trk.team,
                 "team_confidence": float(trk.team_confidence),
             }
-            for passthrough in ("gt_id", "scenario", "note"):
+            # Opaque passthrough, opt-in only (default empty -> no fixture/GT labels
+            # can reach a trajectory unless a harness explicitly asks for them).
+            for passthrough in self.provenance_passthrough_keys:
                 if passthrough in trk.detector_metadata:
                     provenance[passthrough] = trk.detector_metadata[passthrough]
 
@@ -449,11 +492,14 @@ class PlayerTrajectoryBuilder:
                 sigma_major_yd=round(float(sigma_major), 4),
                 sigma_minor_yd=round(float(sigma_minor), 4),
                 covariance_xy=cov_tuple,
+                measurement_covariance_xy=meas_cov_tuple,
                 uncertainty_inflated=bool(uncertainty_inflated),
                 is_outlier_rejected=bool(is_outlier_rejected),
                 rejection_reason=rejection_reason,
                 is_measurement_used=bool(is_measurement_used),
                 image_space_jump_flagged=bool(image_jump_flagged),
+                gate_statistic=gate_statistic,
+                gate_threshold=gate_threshold,
                 missed_frames=int(trk.missed_frames),
                 filter_age_frames=int(st.filter.n_updates) if st.filter is not None else 0,
                 frames_since_measurement=int(st.frames_since_measurement),

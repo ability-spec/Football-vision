@@ -1,8 +1,14 @@
 {
   "benchmark_version": "phase4_v1",
+  "benchmark_kind": "synthetic_trajectory_benchmark",
+  "benchmark_kind_note": "Field-space trajectories are scored against SYNTHETIC deterministic ground-truth routes projected through real per-frame homographies. This is an engineering benchmark of the trajectory layer, not a measurement of NFL or broadcast tracking accuracy.",
+  "real_multiframe_trajectory_accuracy": "not_measured",
+  "real_multiframe_trajectory_accuracy_note": "Real multi-frame trajectory accuracy is not yet measured: no real broadcast clip with frame-level ground-truth trajectories is available in this project. Real frames are used for single-frame smoke/integration and geometry-refusal tests only.",
   "calibration_layer_modified": false,
   "gate_warmup_ablation": {
-    "note": "A/B measured on TRAIN/VAL only (before any TEST sequence was run). The innovation-gate threshold is unchanged; the shipped rule delays the gate until a track has two accepted updates.",
+    "note": "Computed by run_phase4_benchmark() from the shipped implementation, TRAIN/VAL only (TEST is not consulted, so warm-up selection cannot leak into the frozen split). The innovation-gate threshold is unchanged; the shipped rule delays the gate until a track has two accepted updates (M-of-N track initiation).",
+    "computed_by": "benchmarks/evaluate_phase4_trajectories.py::_gate_warmup_ablation",
+    "test_split_consulted": false,
     "results": {
       "train": {
         "gate_from_2nd_update_false_rejections": 48,
@@ -20,13 +26,147 @@
   },
   "detector_implementation": "FixturePlayerDetector (fixture_detector_v1)",
   "image_detector_accuracy_status": "unmeasured",
+  "image_detector_quantitative_metrics": null,
+  "detector_metric_separation_note": "Detection counts/precision/recall in this file are FIXTURE HARNESS pass-through statistics (the boxes are scheduled by the harness, not predicted from pixels). They must never be reported as player-image-detector accuracy; image-based detector accuracy is unmeasured.",
+  "acceleration_status": "experimental_not_validated",
+  "acceleration_note": "Acceleration is the finite difference of the smoothed filter velocity, bounded by a plausibility clip. It is EXPERIMENTAL AND NOT VALIDATED: no measured acceleration accuracy is claimed, and the reported error is dominated by the filter's own noise floor rather than by a validated acceleration model.",
+  "uncertainty_status": "not_statistically_calibrated",
+  "uncertainty_note": "The reported covariance is an a priori engineering model (footpoint pixel noise propagated through the homography Jacobian plus a propagation-drift allowance). It is NOT statistically calibrated against data: empirical coverage is reported per split, per geometry state, and before/after the smoothing stage, and the gap is explained rather than tuned away. Do not read the reported sigma as a calibrated confidence interval.",
+  "uncertainty_calibration_analysis": {
+    "status": "not_statistically_calibrated",
+    "reporting_only": true,
+    "applied_to_shipped_covariance": false,
+    "shipped_covariance_unchanged": true,
+    "fit_split": "train+val",
+    "test_split_used_for_fitting": false,
+    "covariance_scale_k2_train": 1.0952,
+    "covariance_scale_k2_val": 0.8582,
+    "covariance_scale_k2_fitted_on_train_val": 0.9767,
+    "coverage_note": "A value of k2 > 1 means the empirical error is larger than the reported covariance (intervals too narrow). Fitting an inflation factor and shipping it would change the reported uncertainty and could change gate behaviour; that is a Phase-5 decision, so nothing was changed here.",
+    "test_coverage_68_pct_shipped": 49.73,
+    "test_coverage_68_pct_counterfactual_under_fitted_scale": 52.54,
+    "counterfactual_note": "TEST is evaluated with the TRAIN/VAL-fitted scale exactly once, for documentation. No threshold, constant, or reported value in this benchmark uses it."
+  },
+  "dominant_track_selection": {
+    "rule": "lifetime_sample_count_then_lowest_track_id",
+    "inputs": [
+      "track_id",
+      "sample lifetime (number of trajectory samples emitted for the track)"
+    ],
+    "tie_break": "lowest track_id (deterministic; independent of dictionary/iteration order)",
+    "uses_ground_truth_trajectory": false,
+    "uses_ground_truth_error": false,
+    "uses_oracle_track_selection": false,
+    "uses_future_information": false,
+    "gt_dependency": "Ground truth is used ONLY to attribute a track to the player it is scored against (an oracle association inherent to every labelled MOT benchmark: an error cannot be computed without knowing which player a track is compared to). That association is computed before, and never influences, the selection itself.",
+    "note": "Selection is reproducible from runtime-observable counters alone. Fragmentation is additionally reported for every non-dominant track (see track_table / fragmentation_taxonomy), so a poor dominant track cannot hide fragment tracks."
+  },
+  "fragmentation_definitions": {
+    "legitimate_new_track": "First track attributed to that ground-truth player in the sequence, and not created at an injected outlier event.",
+    "active_association_swap": "A track for the player appears in a frame where the player's previous track is still present (both tracks exist in that frame at least momentarily: an active-association swap, the identity failure Phase 3 reports as 0).",
+    "post_expiration_reinitialization": "A track for the player appears after the previous track for that player had no sample in the re-acquisition frame (expired / missed / dropped out): a post-expiration re-initialization rather than a swap.",
+    "outlier_induced_spawn": "The track's first sample coincides with an injected outlier event for that player (the corrupted measurement was strong enough to spawn a separate track).",
+    "unmatched_spurious_track": "A track that the harness cannot attribute to any ground-truth player. Expected to be 0 in this harness because every fixture detection carries a label; reported so that a non-zero value is visible rather than silently dropped."
+  },
+  "rejection_accounting_definition": {
+    "clean_sample": "A dominant-track sample whose (player, frame) pair is NOT an injected outlier event, and for which a raw field projection exists (so the innovation gate could act on it).",
+    "clean_sample_rejected": "A clean sample that the innovation gate rejected: the false-rejection event.",
+    "corrupted_sample": "A dominant-track sample at an injected outlier event (the manifest injects a known pixel jump); 'accepted' means the corrupted measurement was folded into the track.",
+    "innovation_gate": "Field-space chi-square test on the Mahalanobis distance between the measurement and the constant-velocity prediction. This is the only gate that can REJECT a measurement.",
+    "plausibility_gate": "Image-space footpoint jump limit. It can only FLAG a sample (and only when geometry is unknown), never reject a measurement, so its count is reported separately and is not part of the false-rejection rate.",
+    "note": "'Clean'/'corrupted' are harness labels from the manifest, not labels inferred from ground-truth error: this block is a harness metric, not a model-internal quantity."
+  },
+  "metric_scopes": {
+    "model_observable_no_ground_truth": [
+      "n_tracks",
+      "n_samples",
+      "geometry_state_sample_counts",
+      "positioned_by_geometry_state",
+      "samples_with_position_in_unknown_geometry",
+      "fabricated_field_positions",
+      "absolute_yardline_violations",
+      "measurements_rejected_total",
+      "filter_reinitializations",
+      "image_space_plausibility_flags_total",
+      "recovery_events_observed_gap",
+      "projection_recovery_events",
+      "gate_warmup_measurements",
+      "track_table",
+      "samples_per_track",
+      "mean_runtime_ms_per_frame",
+      "mean_runtime_ms_per_sample",
+      "projection_status accounting (unpositioned_by_reason)"
+    ],
+    "harness_gt_dependent": [
+      "field_pos_err_median_yd",
+      "field_pos_err_p90_yd",
+      "field_pos_err_rmse_yd",
+      "raw_field_pos_err_median_yd",
+      "all_matched_track_field_err_median_yd",
+      "non_dominant_track_field_err_median_yd",
+      "speed_err_median_yd_s",
+      "velocity_rmse_yd_s",
+      "accel_mag_err_median_yd_s2",
+      "direction_err_median_deg",
+      "dead_reckoning_err_median_yd",
+      "coverage_68_pct",
+      "coverage_95_pct",
+      "id_switches",
+      "id_switches_active_swap",
+      "id_switches_post_reinit",
+      "track_fragmentations",
+      "track_completeness",
+      "measured_completeness",
+      "dominant_fraction_of_gt_player_frames",
+      "smoothed_path_length_yd",
+      "raw_projection_path_length_yd",
+      "gt_path_length_yd",
+      "motion_preservation_ratio_vs_raw",
+      "motion_preservation_ratio_vs_gt",
+      "fragmentation_taxonomy",
+      "image_space_ema_field_err_median_yd"
+    ],
+    "harness_label_dependent": [
+      "outliers_injected",
+      "outliers_rejected_by_field_gate",
+      "outlier_events_absorbed_into_track",
+      "outlier_events_spawning_spurious_track",
+      "outlier_events_refused_by_projection_gate",
+      "false_rejections",
+      "false_rejection_rate",
+      "false_rejection_rate_including_warmup",
+      "clean_samples_gate_evaluated",
+      "clean_samples_accepted",
+      "clean_samples_rejected",
+      "corrupted_samples_evaluated",
+      "corrupted_samples_rejected",
+      "corrupted_samples_accepted",
+      "true_rejection_rate_on_corrupted",
+      "dead_reckoned_samples_after_false_rejection",
+      "recovery_latency_frames_median",
+      "recovery_latency_frames_max",
+      "projection_recovery_latency_frames_max",
+      "gate_warmup_ablation",
+      "outlier_event_details"
+    ],
+    "note": [
+      "harness_gt_dependent = requires ground-truth player coordinates to exist at all",
+      "harness_label_dependent = requires harness event labels (injected outliers, dropouts) or map-side GT association, not model internals",
+      "model_observable_no_ground_truth = computable from the emitted samples alone"
+    ]
+  },
   "benchmark_provenance_and_semantics": {
     "player_motion": "Synthetic deterministic field-space routes (straight lines, tanh-blended cuts, speed ramps). Timings, speeds and jitter are engineering fixtures, NOT recorded NFL player trajectories.",
     "footpoints": "Box fixtures generated by projecting the synthetic field-space ground truth through the real per-frame broadcast/All-22 homography of the base images, plus deterministic pixel jitter. FixturePlayerDetector (fixture_detector_v1) supplies the boxes.",
     "geometry": "Per-frame CalibrationResult objects: real Phase-1 calibrations of the base frames for calibrated frames; explicit failure objects for unknown frames; T(drift) composed variants flagged is_temporally_propagated for propagated frames.",
     "image_detector_accuracy": "UNMEASURED. Phase 4 measures the trajectory layer given projected player positions; it is not evidence that image-based player detection is solved.",
     "team_labels": "TEAM_A / TEAM_B remain permutation-invariant appearance clusters; trajectory metrics do not depend on real-world team identity.",
-    "camera_cut": "Camera cuts are modelled as an abrupt synthetic framing change plus explicit calibration refusal objects (failure_reason='camera_cut_uncalibrated'). Real broadcast cuts also change scene content, exposure and motion blur, which are not modelled: this scenario validates the refusal/recovery state machine, not real cut detection accuracy."
+    "camera_cut": "Camera cuts are modelled as an abrupt synthetic framing change plus explicit calibration refusal objects (failure_reason='camera_cut_uncalibrated'). Real broadcast cuts also change scene content, exposure and motion blur, which are not modelled: this scenario validates the refusal/recovery state machine, not real cut detection accuracy.",
+    "benchmark_kind": "synthetic_trajectory_benchmark: field-space trajectories are scored against synthetic deterministic ground truth projected through real per-frame homographies of the base images. It is an engineering benchmark of the trajectory layer, not a measurement of NFL/broadcast tracking accuracy.",
+    "real_multiframe_trajectory_accuracy": "NOT MEASURED. No real broadcast clip with frame-level ground-truth trajectories exists in this project. Real frames are used only for a single-frame integration smoke test and for the Phase-2/3 geometry-refusal gates.",
+    "uncertainty": "NOT STATISTICALLY CALIBRATED. The reported covariance is an a priori engineering model (footpoint pixel noise through the homography Jacobian plus a propagation-drift allowance). Empirical coverage is published per split, per geometry state, and before/after the smoothing stage; the reported sigma must not be read as a calibrated confidence interval.",
+    "acceleration": "EXPERIMENTAL / NOT VALIDATED. Acceleration is the finite difference of the smoothed velocity with a plausibility clip; only mathematical correctness is unit-tested and no accuracy claim is made.",
+    "ground_truth_usage": "Ground truth exists only in the benchmark harness (fixture boxes and synthetic routes carry a gt_id through detector metadata). The production package (football_vision/) reads no ground-truth identifier; the trajectory layer's provenance passthrough is opt-in and empty by default. Dominant-track selection uses runtime-observable counters only, and TEST is never used to select a threshold, constant, warm-up rule, process-noise value, uncertainty model or track."
   },
   "frozen_parameters": {
     "process_accel_std_yd_s2": 5.0,
@@ -54,6 +194,18 @@
       "n_players": 12,
       "n_tracks": 12,
       "n_samples": 264,
+      "all_matched_track_samples": 255,
+      "non_dominant_track_samples": 0,
+      "non_dominant_track_samples_total": 0,
+      "dominant_track_samples_total": 264,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 0,
+      "excluded_gt_player_frames": 0,
+      "fragmentation_taxonomy_total": 12,
+      "fragmentation_n_matched_tracks": 12,
+      "fragmentation_dominant_tracks_total": 12,
+      "fragmentation_fragment_tracks_excluded_from_dominant": 0,
+      "image_space_plausibility_flags_total": 0,
       "expected_samples": 264,
       "dominant_samples": 264,
       "measured_dominant_samples": 255,
@@ -109,6 +261,8 @@
       "dead_reckoning_err_median_yd": 0.1691,
       "dead_reckoning_err_p90_yd": 0.2361,
       "spurious_track_field_err_median_yd": null,
+      "all_matched_track_field_err_median_yd": 0.0294,
+      "non_dominant_track_field_err_median_yd": null,
       "mean_sigma_major_yd": 0.0481,
       "mean_sigma_minor_yd": 0.0097,
       "image_space_ema_field_err_median_yd": 0.1427,
@@ -133,7 +287,127 @@
       "mean_mahalanobis_d2": 2.357,
       "coverage_68_pct": 63.38,
       "coverage_95_pct": 90.85,
-      "mean_runtime_ms_per_frame": 5.11
+      "mean_runtime_ms_per_frame": 5.905,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 12,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 0,
+        "track_ids": [],
+        "note": "Tracks whose samples carry more than one ground-truth label. Per-sample attribution (CLEAR convention) keeps the identity metrics honest; these rows exist so the contamination itself stays visible."
+      },
+      "fragmentation_max_tracks_per_gt_player": 1,
+      "dominant_fraction_of_gt_player_frames": 1.0,
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 220,
+        "clean_samples_accepted": 207,
+        "clean_samples_accepted_during_warmup": 44,
+        "clean_samples_rejected": 13,
+        "clean_samples_warmup_bypassed": 44,
+        "corrupted_samples_evaluated": 0,
+        "corrupted_samples_rejected": 0,
+        "corrupted_samples_accepted": 0,
+        "dead_reckoned_samples_after_false_rejection": 9,
+        "rejections_by_innovation_gate": 13,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 13,
+        "rejections_on_dominant_tracks": 13,
+        "rejections_by_innovation_gate_on_dominant_tracks": 13,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 0,
+        "unpositioned_samples": 0,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 0,
+          "geometry_refused": 0,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "false_rejection_rate": 0.059091,
+        "false_rejection_rate_including_warmup": 0.049242,
+        "true_rejection_rate_on_corrupted": null,
+        "plausibility_gate_can_reject_measurements": false,
+        "median_gt_error_of_falsely_rejected_samples_yd": 0.0638,
+        "median_gate_statistic_of_false_rejections": 26.6584,
+        "median_gate_statistic_of_corrupted_rejections": null,
+        "note": "Split-level values are sums over sequences; the three median_* fields are medians of per-sequence medians (documented approximation, not a pooled median)."
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "Split-level coverage/uncertainty values are medians of per-sequence values (documented approximation); jitter/model pixel sigmas are weighted by fixture footpoint count. Coverage is measured on CLEAN accepted measurements; the *_including_injected_events variants keep the pre-remediation view (corrupted-but-accepted samples included) visible.",
+        "coverage_evaluated_samples": 255,
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "coverage_68_pct_smoothed_covariance": 63.38,
+        "coverage_95_pct_smoothed_covariance": 90.85,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 63.38,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 90.85,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 73.96,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "empirical_position_err_median_yd": 0.0294,
+        "empirical_position_err_rmse_yd": 0.043,
+        "assumed_sigma_major_median_yd": 0.0473,
+        "median_mahalanobis_distance_smoothed": 1.2339,
+        "median_mahalanobis_distance_raw_measurement_covariance": 1.0186,
+        "mean_gate_statistic_accepted_clean": 3.2875,
+        "median_gate_statistic_accepted_clean": 1.5783,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 1.1062,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 0.7588,
+        "coverage_68_pct_raw_measurement_covariance": 73.96,
+        "coverage_95_pct_raw_measurement_covariance": 96.95,
+        "predicted_coverage_from_jitter_vs_model_68_pct_median_over_sequences": 68.64,
+        "predicted_coverage_from_jitter_vs_model_95_pct_median_over_sequences": 95.27,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 63.38,
+          "propagated": null
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 90.85,
+          "propagated": null
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": 75.0,
+          "not_inflated": 62.98
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": 100.0,
+          "not_inflated": 90.55
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 4,
+          "not_inflated": 251
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 255,
+          "propagated": 0
+        },
+        "observed_jitter_std_u_px": 0.4852,
+        "observed_jitter_std_v_px": 0.4515,
+        "assumed_footpoint_sigma_u_px": 0.4131,
+        "assumed_footpoint_sigma_v_px": 0.5902,
+        "footpoint_jitter_stats_note": "observed_* and assumed_* pool the per-sequence values weighted by the number of fixture footpoints; see uncertainty_diagnostics per sequence for the full derivation."
+      },
+      "fragmentation_counts_by_origin": {
+        "legitimate_new_track": 12,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 0,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_excluded_from_dominant_total": 0,
+      "fragmentation_matched_tracks_total": 12
     },
     "val": {
       "num_sequences": 2,
@@ -141,6 +415,18 @@
       "n_players": 12,
       "n_tracks": 15,
       "n_samples": 277,
+      "all_matched_track_samples": 260,
+      "non_dominant_track_samples": 14,
+      "non_dominant_track_samples_total": 22,
+      "dominant_track_samples_total": 255,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 0,
+      "excluded_gt_player_frames": 9,
+      "fragmentation_taxonomy_total": 16,
+      "fragmentation_n_matched_tracks": 15,
+      "fragmentation_dominant_tracks_total": 12,
+      "fragmentation_fragment_tracks_excluded_from_dominant": 4,
+      "image_space_plausibility_flags_total": 0,
       "expected_samples": 264,
       "dominant_samples": 255,
       "measured_dominant_samples": 246,
@@ -196,6 +482,8 @@
       "dead_reckoning_err_median_yd": 0.0455,
       "dead_reckoning_err_p90_yd": 0.1295,
       "spurious_track_field_err_median_yd": 0.0342,
+      "all_matched_track_field_err_median_yd": 0.0225,
+      "non_dominant_track_field_err_median_yd": 0.0342,
       "mean_sigma_major_yd": 0.0445,
       "mean_sigma_minor_yd": 0.0096,
       "image_space_ema_field_err_median_yd": 0.123,
@@ -220,7 +508,129 @@
       "mean_mahalanobis_d2": 1.588,
       "coverage_68_pct": 76.02,
       "coverage_95_pct": 98.47,
-      "mean_runtime_ms_per_frame": 3.588
+      "mean_runtime_ms_per_frame": 3.835,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 12,
+        "active_association_swap": 3,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 1,
+        "track_ids": [
+          7
+        ],
+        "note": "Tracks whose samples carry more than one ground-truth label. Per-sample attribution (CLEAR convention) keeps the identity metrics honest; these rows exist so the contamination itself stays visible."
+      },
+      "fragmentation_max_tracks_per_gt_player": 3,
+      "dominant_fraction_of_gt_player_frames": 0.9659,
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 210,
+        "clean_samples_accepted": 210,
+        "clean_samples_accepted_during_warmup": 36,
+        "clean_samples_rejected": 0,
+        "clean_samples_warmup_bypassed": 36,
+        "corrupted_samples_evaluated": 2,
+        "corrupted_samples_rejected": 2,
+        "corrupted_samples_accepted": 0,
+        "dead_reckoned_samples_after_false_rejection": 0,
+        "rejections_by_innovation_gate": 5,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 5,
+        "rejections_on_dominant_tracks": 2,
+        "rejections_by_innovation_gate_on_dominant_tracks": 2,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 0,
+        "unpositioned_samples": 0,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 0,
+          "geometry_refused": 0,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "false_rejection_rate": 0.0,
+        "false_rejection_rate_including_warmup": 0.0,
+        "true_rejection_rate_on_corrupted": 1.0,
+        "plausibility_gate_can_reject_measurements": false,
+        "median_gt_error_of_falsely_rejected_samples_yd": null,
+        "median_gate_statistic_of_false_rejections": null,
+        "median_gate_statistic_of_corrupted_rejections": 1526.2252,
+        "note": "Split-level values are sums over sequences; the three median_* fields are medians of per-sequence medians (documented approximation, not a pooled median)."
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "Split-level coverage/uncertainty values are medians of per-sequence values (documented approximation); jitter/model pixel sigmas are weighted by fixture footpoint count. Coverage is measured on CLEAN accepted measurements; the *_including_injected_events variants keep the pre-remediation view (corrupted-but-accepted samples included) visible.",
+        "coverage_evaluated_samples": 246,
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "coverage_68_pct_smoothed_covariance": 76.02,
+        "coverage_95_pct_smoothed_covariance": 98.47,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 76.02,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 98.47,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 84.105,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "empirical_position_err_median_yd": 0.0214,
+        "empirical_position_err_rmse_yd": 0.0335,
+        "assumed_sigma_major_median_yd": 0.0432,
+        "median_mahalanobis_distance_smoothed": 1.0842,
+        "median_mahalanobis_distance_raw_measurement_covariance": 0.861,
+        "mean_gate_statistic_accepted_clean": 1.5659,
+        "median_gate_statistic_accepted_clean": 1.2379,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 0.8491,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 0.5366,
+        "coverage_68_pct_raw_measurement_covariance": 84.105,
+        "coverage_95_pct_raw_measurement_covariance": 99.51,
+        "predicted_coverage_from_jitter_vs_model_68_pct_median_over_sequences": 68.64,
+        "predicted_coverage_from_jitter_vs_model_95_pct_median_over_sequences": 95.27,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 76.02,
+          "propagated": null
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 98.47,
+          "propagated": null
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 76.02
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 98.47
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 0,
+          "not_inflated": 246
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 246,
+          "propagated": 0
+        },
+        "observed_jitter_std_u_px": 0.4852,
+        "observed_jitter_std_v_px": 0.4515,
+        "assumed_footpoint_sigma_u_px": 0.4131,
+        "assumed_footpoint_sigma_v_px": 0.5902,
+        "footpoint_jitter_stats_note": "observed_* and assumed_* pool the per-sequence values weighted by the number of fixture footpoints; see uncertainty_diagnostics per sequence for the full derivation."
+      },
+      "fragmentation_counts_by_origin": {
+        "legitimate_new_track": 12,
+        "active_association_swap": 3,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 1,
+        "active_association_swap": 2,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_excluded_from_dominant_total": 4,
+      "fragmentation_matched_tracks_total": 15
     },
     "test": {
       "num_sequences": 4,
@@ -228,6 +638,18 @@
       "n_players": 24,
       "n_tracks": 32,
       "n_samples": 577,
+      "all_matched_track_samples": 457,
+      "non_dominant_track_samples": 44,
+      "non_dominant_track_samples_total": 73,
+      "dominant_track_samples_total": 504,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 16,
+      "excluded_gt_player_frames": 64,
+      "fragmentation_taxonomy_total": 33,
+      "fragmentation_n_matched_tracks": 32,
+      "fragmentation_dominant_tracks_total": 24,
+      "fragmentation_fragment_tracks_excluded_from_dominant": 9,
+      "image_space_plausibility_flags_total": 3,
       "expected_samples": 552,
       "dominant_samples": 488,
       "measured_dominant_samples": 413,
@@ -283,6 +705,8 @@
       "dead_reckoning_err_median_yd": 0.0996,
       "dead_reckoning_err_p90_yd": 0.21,
       "spurious_track_field_err_median_yd": 0.0616,
+      "all_matched_track_field_err_median_yd": 0.0371,
+      "non_dominant_track_field_err_median_yd": 0.0616,
       "mean_sigma_major_yd": 0.0496,
       "mean_sigma_minor_yd": 0.0114,
       "image_space_ema_field_err_median_yd": 0.1509,
@@ -307,7 +731,129 @@
       "mean_mahalanobis_d2": 3.885,
       "coverage_68_pct": 49.73,
       "coverage_95_pct": 80.09,
-      "mean_runtime_ms_per_frame": 3.384
+      "mean_runtime_ms_per_frame": 3.804,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 24,
+        "active_association_swap": 8,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 1,
+        "track_ids": [
+          4
+        ],
+        "note": "Tracks whose samples carry more than one ground-truth label. Per-sample attribution (CLEAR convention) keeps the identity metrics honest; these rows exist so the contamination itself stays visible."
+      },
+      "fragmentation_max_tracks_per_gt_player": 2,
+      "dominant_fraction_of_gt_player_frames": 0.8841,
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 379,
+        "clean_samples_accepted": 323,
+        "clean_samples_accepted_during_warmup": 83,
+        "clean_samples_rejected": 56,
+        "clean_samples_warmup_bypassed": 83,
+        "corrupted_samples_evaluated": 0,
+        "corrupted_samples_rejected": 0,
+        "corrupted_samples_accepted": 0,
+        "dead_reckoned_samples_after_false_rejection": 49,
+        "rejections_by_innovation_gate": 59,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 59,
+        "rejections_on_dominant_tracks": 56,
+        "rejections_by_innovation_gate_on_dominant_tracks": 56,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 3,
+        "unpositioned_samples": 18,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 2,
+          "geometry_refused": 16,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "false_rejection_rate": 0.147757,
+        "false_rejection_rate_including_warmup": 0.121212,
+        "true_rejection_rate_on_corrupted": null,
+        "plausibility_gate_can_reject_measurements": false,
+        "median_gt_error_of_falsely_rejected_samples_yd": 0.0856,
+        "median_gate_statistic_of_false_rejections": 14.393,
+        "median_gate_statistic_of_corrupted_rejections": null,
+        "note": "Split-level values are sums over sequences; the three median_* fields are medians of per-sequence medians (documented approximation, not a pooled median)."
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "Split-level coverage/uncertainty values are medians of per-sequence values (documented approximation); jitter/model pixel sigmas are weighted by fixture footpoint count. Coverage is measured on CLEAN accepted measurements; the *_including_injected_events variants keep the pre-remediation view (corrupted-but-accepted samples included) visible.",
+        "coverage_evaluated_samples": 413,
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "coverage_68_pct_smoothed_covariance": 49.73,
+        "coverage_95_pct_smoothed_covariance": 80.09,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 49.73,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 80.095,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 64.03,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "empirical_position_err_median_yd": 0.037,
+        "empirical_position_err_rmse_yd": 0.0512,
+        "assumed_sigma_major_median_yd": 0.0473,
+        "median_mahalanobis_distance_smoothed": 1.6861,
+        "median_mahalanobis_distance_raw_measurement_covariance": 1.2279,
+        "mean_gate_statistic_accepted_clean": 4.0593,
+        "median_gate_statistic_accepted_clean": 1.8023,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 2.1572,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 1.1591,
+        "coverage_68_pct_raw_measurement_covariance": 64.03,
+        "coverage_95_pct_raw_measurement_covariance": 87.215,
+        "predicted_coverage_from_jitter_vs_model_68_pct_median_over_sequences": 51.52,
+        "predicted_coverage_from_jitter_vs_model_95_pct_median_over_sequences": 81.18,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 48.83,
+          "propagated": 77.78
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 79.95,
+          "propagated": 100.0
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": 0.0,
+          "not_inflated": 50.06
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": 25.0,
+          "not_inflated": 80.75
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 7,
+          "not_inflated": 406
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 395,
+          "propagated": 18
+        },
+        "observed_jitter_std_u_px": 0.8356,
+        "observed_jitter_std_v_px": 0.7766,
+        "assumed_footpoint_sigma_u_px": 0.525,
+        "assumed_footpoint_sigma_v_px": 0.75,
+        "footpoint_jitter_stats_note": "observed_* and assumed_* pool the per-sequence values weighted by the number of fixture footpoints; see uncertainty_diagnostics per sequence for the full derivation."
+      },
+      "fragmentation_counts_by_origin": {
+        "legitimate_new_track": 24,
+        "active_association_swap": 8,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 8,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_excluded_from_dominant_total": 9,
+      "fragmentation_matched_tracks_total": 32
     }
   },
   "sequences": [
@@ -325,6 +871,35 @@
       "n_tracks": 6,
       "n_samples": 144,
       "expected_samples": 144,
+      "dominant_track_rule": "lifetime_sample_count_then_lowest_track_id",
+      "dominant_track_id_by_gt": {
+        "1": 2,
+        "2": 4,
+        "3": 3,
+        "4": 6,
+        "5": 5,
+        "6": 1
+      },
+      "dominant_track_alternatives": {
+        "positioned_sample_count_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.022947178741217295,
+          "selection_rule_is_diagnostic_only": true
+        },
+        "longest_observed_run_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.022947178741217295,
+          "selection_rule_is_diagnostic_only": true
+        }
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 0,
+        "tracks_without_any_label": 0,
+        "tracks": {},
+        "note": "A track whose samples carry two different ground-truth labels means the tracker kept one track_id alive across a player change (observed after the camera cut). Samples are still scored against the player they claim (CLEAR-MOTA per-frame convention); this block makes the contamination visible instead of hiding it."
+      },
       "dominant_samples": 144,
       "measured_dominant_samples": 144,
       "observed_dominant_samples": 144,
@@ -352,11 +927,238 @@
       "field_pos_err_p90_yd": 0.055732381034665004,
       "field_pos_err_rmse_yd": 0.0339,
       "smoothing_error_reduction_pct": 49.06,
+      "all_matched_track_field_err_median_yd": 0.022947178741217295,
+      "all_matched_track_samples": 144,
+      "non_dominant_track_field_err_median_yd": null,
+      "non_dominant_track_samples": 0,
+      "non_dominant_track_samples_total": 0,
+      "dominant_track_samples_total": 144,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 0,
       "spurious_track_field_err_median_yd": null,
       "spurious_track_samples": 0,
+      "excluded_gt_player_frames": 0,
+      "dominant_fraction_of_gt_player_frames": 1.0,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 6,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_taxonomy_total": 6,
+      "fragmentation_n_matched_tracks": 6,
+      "fragmentation_dominant_tracks_total": 6,
+      "fragmentation_excluded_from_dominant_total": 0,
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 0,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_fragment_tracks_excluded_from_dominant": 0,
+      "fragmentation_tracks_per_gt_player": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1
+      },
+      "fragmentation_max_tracks_per_gt_player": 1,
+      "fragmentation_samples_per_track": {
+        "1": 24,
+        "2": 24,
+        "3": 24,
+        "4": 24,
+        "5": 24,
+        "6": 24
+      },
+      "track_table": [
+        {
+          "track_id": 1,
+          "gt_id": 6,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 2,
+          "gt_id": 1,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 3,
+          "gt_id": 3,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 4,
+          "gt_id": 2,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 5,
+          "gt_id": 5,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 6,
+          "gt_id": 4,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        }
+      ],
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 126,
+        "clean_samples_accepted": 126,
+        "clean_samples_accepted_during_warmup": 18,
+        "clean_samples_rejected": 0,
+        "clean_samples_warmup_bypassed": 18,
+        "false_rejection_rate": 0.0,
+        "false_rejection_rate_including_warmup": 0.0,
+        "corrupted_samples_evaluated": 0,
+        "corrupted_samples_rejected": 0,
+        "corrupted_samples_accepted": 0,
+        "true_rejection_rate_on_corrupted": null,
+        "dead_reckoned_samples_after_false_rejection": 0,
+        "rejections_by_innovation_gate": 0,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 0,
+        "rejections_on_dominant_tracks": 0,
+        "rejections_by_innovation_gate_on_dominant_tracks": 0,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 0,
+        "plausibility_gate_can_reject_measurements": false,
+        "unpositioned_samples": 0,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 0,
+          "geometry_refused": 0,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "median_gt_error_of_falsely_rejected_samples_yd": null,
+        "median_gate_statistic_of_false_rejections": null,
+        "median_gate_statistic_of_corrupted_rejections": null
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "The reported covariance is an a priori engineering model (footpoint pixel noise propagated through the homography Jacobian plus a propagation-drift allowance). It is NOT statistically calibrated against data: empirical coverage is reported per split, per geometry state, and before/after the smoothing stage, and the gap is explained rather than tuned away. Do not read the reported sigma as a calibrated confidence interval.",
+        "coverage_evaluated_samples": 144,
+        "coverage_note": "Coverage uses CLEAN accepted measurements only; accepted injected outliers are counted separately (injected_accepted_samples_excluded_from_coverage) and included in the *_including_injected_events variants so both views stay available.",
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "coverage_68_pct_smoothed_covariance": 73.61,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 73.61,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 97.92,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 81.25,
+        "coverage_95_pct_smoothed_covariance": 97.92,
+        "coverage_68_pct_raw_measurement_covariance": 81.25,
+        "coverage_95_pct_raw_measurement_covariance": 99.31,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 73.61,
+          "propagated": null
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 97.92,
+          "propagated": null
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 144,
+          "propagated": 0
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 73.61
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 97.92
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 0,
+          "not_inflated": 144
+        },
+        "empirical_position_err_median_yd": 0.022947178741217295,
+        "empirical_position_err_rmse_yd": 0.0339,
+        "assumed_sigma_major_median_yd": 0.04425,
+        "median_mahalanobis_distance_smoothed": 1.1302,
+        "median_mahalanobis_distance_raw_measurement_covariance": 0.8997,
+        "mean_gate_statistic_accepted_clean": 1.55,
+        "median_gate_statistic_accepted_clean": 1.1810386108493547,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 0.9216,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 0.5841,
+        "jitter_vs_model_explanation": "First-order explanation of the coverage gap: the injected harness jitter is larger than the frozen 1 px footpoint-noise assumption, so the reported covariance is too small by roughly the ratio below. This is a diagnostic derivation, not a calibration.",
+        "jitter_vs_model_prediction": {
+          "assumed_footpoint_sigma_u_px": 0.4131,
+          "assumed_footpoint_sigma_v_px": 0.5902,
+          "observed_footpoint_jitter_std_u_px": 0.4855,
+          "observed_footpoint_jitter_std_v_px": 0.4527,
+          "predicted_covariance_scale_k2": 0.9846,
+          "predicted_coverage_68_pct": 68.55,
+          "predicted_coverage_95_pct": 95.23
+        }
+      },
+      "footpoint_jitter_stats": {
+        "observed_jitter_std_u_px": 0.48550347388310544,
+        "observed_jitter_std_v_px": 0.4526525834188356,
+        "assumed_footpoint_sigma_u_px": 0.4131400000000002,
+        "assumed_footpoint_sigma_v_px": 0.5902000000000002,
+        "n_fixture_footpoints": 144
+      },
       "speed_err_median_yd_s": 0.11674999999999991,
       "velocity_rmse_yd_s": 1.1812,
       "accel_mag_err_median_yd_s2": 5.7597000000000005,
+      "acceleration_status": "experimental_not_validated",
       "gt_accel_mag_median_yd_s2": 0.0,
       "gt_speed_median_yd_s": 5.299999999999999,
       "dead_reckoning_samples": 0,
@@ -382,6 +1184,7 @@
       },
       "samples_with_position_in_unknown_geometry": 0,
       "image_space_jumps_flagged": 0,
+      "image_space_plausibility_flags_total": 0,
       "reinitialized_after_gap": 0,
       "reinitialized_after_rejections": 0,
       "filter_reinitializations": 0,
@@ -408,8 +1211,8 @@
       "projection_recovery_latency_frames_max": 0,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 0,
-      "mean_runtime_ms_per_frame": 6.99,
-      "mean_runtime_ms_per_sample": 1.165,
+      "mean_runtime_ms_per_frame": 8.144,
+      "mean_runtime_ms_per_sample": 1.357,
       "image_space_ema_field_err_median_yd": 0.1589744660579057
     },
     {
@@ -426,6 +1229,35 @@
       "n_tracks": 6,
       "n_samples": 120,
       "expected_samples": 120,
+      "dominant_track_rule": "lifetime_sample_count_then_lowest_track_id",
+      "dominant_track_id_by_gt": {
+        "1": 2,
+        "2": 4,
+        "3": 3,
+        "4": 6,
+        "5": 5,
+        "6": 1
+      },
+      "dominant_track_alternatives": {
+        "positioned_sample_count_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.035879323827932484,
+          "selection_rule_is_diagnostic_only": true
+        },
+        "longest_observed_run_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.035879323827932484,
+          "selection_rule_is_diagnostic_only": true
+        }
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 0,
+        "tracks_without_any_label": 0,
+        "tracks": {},
+        "note": "A track whose samples carry two different ground-truth labels means the tracker kept one track_id alive across a player change (observed after the camera cut). Samples are still scored against the player they claim (CLEAR-MOTA per-frame convention); this block makes the contamination visible instead of hiding it."
+      },
       "dominant_samples": 120,
       "measured_dominant_samples": 111,
       "observed_dominant_samples": 120,
@@ -453,11 +1285,238 @@
       "field_pos_err_p90_yd": 0.08404309055687137,
       "field_pos_err_rmse_yd": 0.0521,
       "smoothing_error_reduction_pct": 19.14,
+      "all_matched_track_field_err_median_yd": 0.035879323827932484,
+      "all_matched_track_samples": 111,
+      "non_dominant_track_field_err_median_yd": null,
+      "non_dominant_track_samples": 0,
+      "non_dominant_track_samples_total": 0,
+      "dominant_track_samples_total": 120,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 0,
       "spurious_track_field_err_median_yd": null,
       "spurious_track_samples": 0,
+      "excluded_gt_player_frames": 0,
+      "dominant_fraction_of_gt_player_frames": 1.0,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 6,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_taxonomy_total": 6,
+      "fragmentation_n_matched_tracks": 6,
+      "fragmentation_dominant_tracks_total": 6,
+      "fragmentation_excluded_from_dominant_total": 0,
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 0,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_fragment_tracks_excluded_from_dominant": 0,
+      "fragmentation_tracks_per_gt_player": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1
+      },
+      "fragmentation_max_tracks_per_gt_player": 1,
+      "fragmentation_samples_per_track": {
+        "1": 20,
+        "2": 20,
+        "3": 20,
+        "4": 20,
+        "5": 20,
+        "6": 20
+      },
+      "track_table": [
+        {
+          "track_id": 1,
+          "gt_id": 6,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 18,
+          "n_dead_reckoned": 2,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 2,
+          "gt_id": 1,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 18,
+          "n_dead_reckoned": 2,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 3,
+          "gt_id": 3,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 18,
+          "n_dead_reckoned": 2,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 4,
+          "gt_id": 2,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 18,
+          "n_dead_reckoned": 2,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 5,
+          "gt_id": 5,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 19,
+          "n_dead_reckoned": 1,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 6,
+          "gt_id": 4,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 20,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        }
+      ],
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 94,
+        "clean_samples_accepted": 81,
+        "clean_samples_accepted_during_warmup": 26,
+        "clean_samples_rejected": 13,
+        "clean_samples_warmup_bypassed": 26,
+        "false_rejection_rate": 0.138298,
+        "false_rejection_rate_including_warmup": 0.108333,
+        "corrupted_samples_evaluated": 0,
+        "corrupted_samples_rejected": 0,
+        "corrupted_samples_accepted": 0,
+        "true_rejection_rate_on_corrupted": null,
+        "dead_reckoned_samples_after_false_rejection": 9,
+        "rejections_by_innovation_gate": 13,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 13,
+        "rejections_on_dominant_tracks": 13,
+        "rejections_by_innovation_gate_on_dominant_tracks": 13,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 0,
+        "plausibility_gate_can_reject_measurements": false,
+        "unpositioned_samples": 0,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 0,
+          "geometry_refused": 0,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "median_gt_error_of_falsely_rejected_samples_yd": 0.06378907978507962,
+        "median_gate_statistic_of_false_rejections": 26.65837425561223,
+        "median_gate_statistic_of_corrupted_rejections": null
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "The reported covariance is an a priori engineering model (footpoint pixel noise propagated through the homography Jacobian plus a propagation-drift allowance). It is NOT statistically calibrated against data: empirical coverage is reported per split, per geometry state, and before/after the smoothing stage, and the gap is explained rather than tuned away. Do not read the reported sigma as a calibrated confidence interval.",
+        "coverage_evaluated_samples": 111,
+        "coverage_note": "Coverage uses CLEAN accepted measurements only; accepted injected outliers are counted separately (injected_accepted_samples_excluded_from_coverage) and included in the *_including_injected_events variants so both views stay available.",
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "coverage_68_pct_smoothed_covariance": 53.15,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 53.15,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 83.78,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 66.67,
+        "coverage_95_pct_smoothed_covariance": 83.78,
+        "coverage_68_pct_raw_measurement_covariance": 66.67,
+        "coverage_95_pct_raw_measurement_covariance": 94.59,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 53.15,
+          "propagated": null
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 83.78,
+          "propagated": null
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 111,
+          "propagated": 0
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": 75.0,
+          "not_inflated": 52.34
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": 100.0,
+          "not_inflated": 83.18
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 4,
+          "not_inflated": 107
+        },
+        "empirical_position_err_median_yd": 0.035879323827932484,
+        "empirical_position_err_rmse_yd": 0.0521,
+        "assumed_sigma_major_median_yd": 0.0503,
+        "median_mahalanobis_distance_smoothed": 1.3376,
+        "median_mahalanobis_distance_raw_measurement_covariance": 1.1374,
+        "mean_gate_statistic_accepted_clean": 5.025,
+        "median_gate_statistic_accepted_clean": 1.9755254609477444,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 1.2909,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 0.9334,
+        "jitter_vs_model_explanation": "First-order explanation of the coverage gap: the injected harness jitter is larger than the frozen 1 px footpoint-noise assumption, so the reported covariance is too small by roughly the ratio below. This is a diagnostic derivation, not a calibration.",
+        "jitter_vs_model_prediction": {
+          "assumed_footpoint_sigma_u_px": 0.4131,
+          "assumed_footpoint_sigma_v_px": 0.5902,
+          "observed_footpoint_jitter_std_u_px": 0.4849,
+          "observed_footpoint_jitter_std_v_px": 0.4502,
+          "predicted_covariance_scale_k2": 0.9796,
+          "predicted_coverage_68_pct": 68.74,
+          "predicted_coverage_95_pct": 95.3
+        }
+      },
+      "footpoint_jitter_stats": {
+        "observed_jitter_std_u_px": 0.48486182731163113,
+        "observed_jitter_std_v_px": 0.450172791308138,
+        "assumed_footpoint_sigma_u_px": 0.41314000000000023,
+        "assumed_footpoint_sigma_v_px": 0.5902000000000001,
+        "n_fixture_footpoints": 120
+      },
       "speed_err_median_yd_s": 0.29750338049794944,
       "velocity_rmse_yd_s": 1.7524,
       "accel_mag_err_median_yd_s2": 8.223195867870464,
+      "acceleration_status": "experimental_not_validated",
       "gt_accel_mag_median_yd_s2": 2.996058447845565,
       "gt_speed_median_yd_s": 4.2,
       "dead_reckoning_samples": 9,
@@ -483,6 +1542,7 @@
       },
       "samples_with_position_in_unknown_geometry": 0,
       "image_space_jumps_flagged": 0,
+      "image_space_plausibility_flags_total": 0,
       "reinitialized_after_gap": 0,
       "reinitialized_after_rejections": 4,
       "filter_reinitializations": 4,
@@ -509,8 +1569,8 @@
       "projection_recovery_latency_frames_max": 2,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 13,
-      "mean_runtime_ms_per_frame": 3.229,
-      "mean_runtime_ms_per_sample": 0.538,
+      "mean_runtime_ms_per_frame": 3.667,
+      "mean_runtime_ms_per_sample": 0.611,
       "image_space_ema_field_err_median_yd": 0.12646122833572443
     },
     {
@@ -527,6 +1587,35 @@
       "n_tracks": 6,
       "n_samples": 144,
       "expected_samples": 144,
+      "dominant_track_rule": "lifetime_sample_count_then_lowest_track_id",
+      "dominant_track_id_by_gt": {
+        "1": 2,
+        "2": 4,
+        "3": 3,
+        "4": 6,
+        "5": 5,
+        "6": 1
+      },
+      "dominant_track_alternatives": {
+        "positioned_sample_count_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.023245512899918927,
+          "selection_rule_is_diagnostic_only": true
+        },
+        "longest_observed_run_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.023245512899918927,
+          "selection_rule_is_diagnostic_only": true
+        }
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 0,
+        "tracks_without_any_label": 0,
+        "tracks": {},
+        "note": "A track whose samples carry two different ground-truth labels means the tracker kept one track_id alive across a player change (observed after the camera cut). Samples are still scored against the player they claim (CLEAR-MOTA per-frame convention); this block makes the contamination visible instead of hiding it."
+      },
       "dominant_samples": 144,
       "measured_dominant_samples": 144,
       "observed_dominant_samples": 144,
@@ -554,11 +1643,238 @@
       "field_pos_err_p90_yd": 0.05719107442185891,
       "field_pos_err_rmse_yd": 0.0344,
       "smoothing_error_reduction_pct": 49.41,
+      "all_matched_track_field_err_median_yd": 0.023245512899918927,
+      "all_matched_track_samples": 144,
+      "non_dominant_track_field_err_median_yd": null,
+      "non_dominant_track_samples": 0,
+      "non_dominant_track_samples_total": 0,
+      "dominant_track_samples_total": 144,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 0,
       "spurious_track_field_err_median_yd": null,
       "spurious_track_samples": 0,
+      "excluded_gt_player_frames": 0,
+      "dominant_fraction_of_gt_player_frames": 1.0,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 6,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_taxonomy_total": 6,
+      "fragmentation_n_matched_tracks": 6,
+      "fragmentation_dominant_tracks_total": 6,
+      "fragmentation_excluded_from_dominant_total": 0,
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 0,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_fragment_tracks_excluded_from_dominant": 0,
+      "fragmentation_tracks_per_gt_player": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1
+      },
+      "fragmentation_max_tracks_per_gt_player": 1,
+      "fragmentation_samples_per_track": {
+        "1": 24,
+        "2": 24,
+        "3": 24,
+        "4": 24,
+        "5": 24,
+        "6": 24
+      },
+      "track_table": [
+        {
+          "track_id": 1,
+          "gt_id": 6,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 2,
+          "gt_id": 1,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 3,
+          "gt_id": 3,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 4,
+          "gt_id": 2,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 5,
+          "gt_id": 5,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 6,
+          "gt_id": 4,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 24,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        }
+      ],
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 126,
+        "clean_samples_accepted": 126,
+        "clean_samples_accepted_during_warmup": 18,
+        "clean_samples_rejected": 0,
+        "clean_samples_warmup_bypassed": 18,
+        "false_rejection_rate": 0.0,
+        "false_rejection_rate_including_warmup": 0.0,
+        "corrupted_samples_evaluated": 0,
+        "corrupted_samples_rejected": 0,
+        "corrupted_samples_accepted": 0,
+        "true_rejection_rate_on_corrupted": null,
+        "dead_reckoned_samples_after_false_rejection": 0,
+        "rejections_by_innovation_gate": 0,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 0,
+        "rejections_on_dominant_tracks": 0,
+        "rejections_by_innovation_gate_on_dominant_tracks": 0,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 0,
+        "plausibility_gate_can_reject_measurements": false,
+        "unpositioned_samples": 0,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 0,
+          "geometry_refused": 0,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "median_gt_error_of_falsely_rejected_samples_yd": null,
+        "median_gate_statistic_of_false_rejections": null,
+        "median_gate_statistic_of_corrupted_rejections": null
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "The reported covariance is an a priori engineering model (footpoint pixel noise propagated through the homography Jacobian plus a propagation-drift allowance). It is NOT statistically calibrated against data: empirical coverage is reported per split, per geometry state, and before/after the smoothing stage, and the gap is explained rather than tuned away. Do not read the reported sigma as a calibrated confidence interval.",
+        "coverage_evaluated_samples": 144,
+        "coverage_note": "Coverage uses CLEAN accepted measurements only; accepted injected outliers are counted separately (injected_accepted_samples_excluded_from_coverage) and included in the *_including_injected_events variants so both views stay available.",
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "coverage_68_pct_smoothed_covariance": 73.61,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 73.61,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 97.92,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 81.94,
+        "coverage_95_pct_smoothed_covariance": 97.92,
+        "coverage_68_pct_raw_measurement_covariance": 81.94,
+        "coverage_95_pct_raw_measurement_covariance": 100.0,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 73.61,
+          "propagated": null
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 97.92,
+          "propagated": null
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 144,
+          "propagated": 0
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 73.61
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 97.92
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 0,
+          "not_inflated": 144
+        },
+        "empirical_position_err_median_yd": 0.023245512899918927,
+        "empirical_position_err_rmse_yd": 0.0344,
+        "assumed_sigma_major_median_yd": 0.0445,
+        "median_mahalanobis_distance_smoothed": 1.1204,
+        "median_mahalanobis_distance_raw_measurement_covariance": 0.9095,
+        "mean_gate_statistic_accepted_clean": 1.5471,
+        "median_gate_statistic_accepted_clean": 1.179220772074944,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 0.9058,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 0.5969,
+        "jitter_vs_model_explanation": "First-order explanation of the coverage gap: the injected harness jitter is larger than the frozen 1 px footpoint-noise assumption, so the reported covariance is too small by roughly the ratio below. This is a diagnostic derivation, not a calibration.",
+        "jitter_vs_model_prediction": {
+          "assumed_footpoint_sigma_u_px": 0.4131,
+          "assumed_footpoint_sigma_v_px": 0.5902,
+          "observed_footpoint_jitter_std_u_px": 0.4855,
+          "observed_footpoint_jitter_std_v_px": 0.4527,
+          "predicted_covariance_scale_k2": 0.9846,
+          "predicted_coverage_68_pct": 68.55,
+          "predicted_coverage_95_pct": 95.23
+        }
+      },
+      "footpoint_jitter_stats": {
+        "observed_jitter_std_u_px": 0.48550347388310544,
+        "observed_jitter_std_v_px": 0.4526525834188356,
+        "assumed_footpoint_sigma_u_px": 0.4131400000000002,
+        "assumed_footpoint_sigma_v_px": 0.5902000000000002,
+        "n_fixture_footpoints": 144
+      },
       "speed_err_median_yd_s": 0.11780000000000013,
       "velocity_rmse_yd_s": 0.9472,
       "accel_mag_err_median_yd_s2": 5.8255,
+      "acceleration_status": "experimental_not_validated",
       "gt_accel_mag_median_yd_s2": 0.0,
       "gt_speed_median_yd_s": 4.0,
       "dead_reckoning_samples": 0,
@@ -584,6 +1900,7 @@
       },
       "samples_with_position_in_unknown_geometry": 0,
       "image_space_jumps_flagged": 0,
+      "image_space_plausibility_flags_total": 0,
       "reinitialized_after_gap": 0,
       "reinitialized_after_rejections": 0,
       "filter_reinitializations": 0,
@@ -610,8 +1927,8 @@
       "projection_recovery_latency_frames_max": 0,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 0,
-      "mean_runtime_ms_per_frame": 3.235,
-      "mean_runtime_ms_per_sample": 0.539,
+      "mean_runtime_ms_per_frame": 3.868,
+      "mean_runtime_ms_per_sample": 0.645,
       "image_space_ema_field_err_median_yd": 0.08428274636531674
     },
     {
@@ -628,6 +1945,40 @@
       "n_tracks": 9,
       "n_samples": 133,
       "expected_samples": 120,
+      "dominant_track_rule": "lifetime_sample_count_then_lowest_track_id",
+      "dominant_track_id_by_gt": {
+        "1": 2,
+        "2": 7,
+        "3": 3,
+        "4": 6,
+        "5": 5,
+        "6": 1
+      },
+      "dominant_track_alternatives": {
+        "positioned_sample_count_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.019649479974139225,
+          "selection_rule_is_diagnostic_only": true
+        },
+        "longest_observed_run_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.019649479974139225,
+          "selection_rule_is_diagnostic_only": true
+        }
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 1,
+        "tracks_without_any_label": 0,
+        "tracks": {
+          "7": {
+            "2": 11,
+            "5": 3
+          }
+        },
+        "note": "A track whose samples carry two different ground-truth labels means the tracker kept one track_id alive across a player change (observed after the camera cut). Samples are still scored against the player they claim (CLEAR-MOTA per-frame convention); this block makes the contamination visible instead of hiding it."
+      },
       "dominant_samples": 111,
       "measured_dominant_samples": 102,
       "observed_dominant_samples": 104,
@@ -655,11 +2006,293 @@
       "field_pos_err_p90_yd": 0.05345919315469257,
       "field_pos_err_rmse_yd": 0.0326,
       "smoothing_error_reduction_pct": 54.57,
+      "all_matched_track_field_err_median_yd": 0.021749831772601477,
+      "all_matched_track_samples": 116,
+      "non_dominant_track_field_err_median_yd": 0.034248815670629,
+      "non_dominant_track_samples": 14,
+      "non_dominant_track_samples_total": 22,
+      "dominant_track_samples_total": 111,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 0,
       "spurious_track_field_err_median_yd": 0.034248815670629,
       "spurious_track_samples": 14,
+      "excluded_gt_player_frames": 9,
+      "dominant_fraction_of_gt_player_frames": 0.925,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 6,
+        "active_association_swap": 3,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_taxonomy_total": 10,
+      "fragmentation_n_matched_tracks": 9,
+      "fragmentation_dominant_tracks_total": 6,
+      "fragmentation_excluded_from_dominant_total": 4,
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 1,
+        "active_association_swap": 2,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_fragment_tracks_excluded_from_dominant": 4,
+      "fragmentation_tracks_per_gt_player": {
+        "1": 1,
+        "2": 3,
+        "3": 1,
+        "4": 2,
+        "5": 2,
+        "6": 1
+      },
+      "fragmentation_max_tracks_per_gt_player": 3,
+      "fragmentation_samples_per_track": {
+        "1": 20,
+        "2": 20,
+        "3": 20,
+        "4": 9,
+        "5": 20,
+        "6": 20,
+        "7": 14,
+        "8": 4,
+        "9": 6
+      },
+      "track_table": [
+        {
+          "track_id": 1,
+          "gt_id": 6,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 20,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 2,
+          "gt_id": 1,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 20,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 3,
+          "gt_id": 3,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 20,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 4,
+          "gt_id": 2,
+          "first_frame": 0,
+          "last_frame": 8,
+          "n_samples": 9,
+          "n_observed": 6,
+          "n_positioned": 5,
+          "n_dead_reckoned": 4,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 5,
+          "gt_id": 5,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 17,
+          "n_positioned": 16,
+          "n_dead_reckoned": 4,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 6,
+          "gt_id": 4,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 19,
+          "n_positioned": 19,
+          "n_dead_reckoned": 1,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 7,
+          "gt_id": 2,
+          "first_frame": 6,
+          "last_frame": 16,
+          "n_samples": 11,
+          "n_observed": 8,
+          "n_positioned": 7,
+          "n_dead_reckoned": 4,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": true
+        },
+        {
+          "track_id": 8,
+          "gt_id": 4,
+          "first_frame": 7,
+          "last_frame": 10,
+          "n_samples": 4,
+          "n_observed": 1,
+          "n_positioned": 1,
+          "n_dead_reckoned": 3,
+          "origin_category": "outlier_induced_spawn",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 9,
+          "gt_id": 2,
+          "first_frame": 14,
+          "last_frame": 19,
+          "n_samples": 6,
+          "n_observed": 6,
+          "n_positioned": 6,
+          "n_dead_reckoned": 0,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 7,
+          "gt_id": 5,
+          "first_frame": 17,
+          "last_frame": 19,
+          "n_samples": 3,
+          "n_observed": 3,
+          "n_positioned": 2,
+          "n_dead_reckoned": 1,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": true
+        }
+      ],
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 84,
+        "clean_samples_accepted": 84,
+        "clean_samples_accepted_during_warmup": 18,
+        "clean_samples_rejected": 0,
+        "clean_samples_warmup_bypassed": 18,
+        "false_rejection_rate": 0.0,
+        "false_rejection_rate_including_warmup": 0.0,
+        "corrupted_samples_evaluated": 2,
+        "corrupted_samples_rejected": 2,
+        "corrupted_samples_accepted": 0,
+        "true_rejection_rate_on_corrupted": 1.0,
+        "dead_reckoned_samples_after_false_rejection": 0,
+        "rejections_by_innovation_gate": 5,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 5,
+        "rejections_on_dominant_tracks": 2,
+        "rejections_by_innovation_gate_on_dominant_tracks": 2,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 0,
+        "plausibility_gate_can_reject_measurements": false,
+        "unpositioned_samples": 0,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 0,
+          "geometry_refused": 0,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "median_gt_error_of_falsely_rejected_samples_yd": null,
+        "median_gate_statistic_of_false_rejections": null,
+        "median_gate_statistic_of_corrupted_rejections": 1526.2251501446262
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "The reported covariance is an a priori engineering model (footpoint pixel noise propagated through the homography Jacobian plus a propagation-drift allowance). It is NOT statistically calibrated against data: empirical coverage is reported per split, per geometry state, and before/after the smoothing stage, and the gap is explained rather than tuned away. Do not read the reported sigma as a calibrated confidence interval.",
+        "coverage_evaluated_samples": 102,
+        "coverage_note": "Coverage uses CLEAN accepted measurements only; accepted injected outliers are counted separately (injected_accepted_samples_excluded_from_coverage) and included in the *_including_injected_events variants so both views stay available.",
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "coverage_68_pct_smoothed_covariance": 78.43,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 78.43,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 99.02,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 86.27,
+        "coverage_95_pct_smoothed_covariance": 99.02,
+        "coverage_68_pct_raw_measurement_covariance": 86.27,
+        "coverage_95_pct_raw_measurement_covariance": 99.02,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 78.43,
+          "propagated": null
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 99.02,
+          "propagated": null
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 102,
+          "propagated": 0
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 78.43
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 99.02
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 0,
+          "not_inflated": 102
+        },
+        "empirical_position_err_median_yd": 0.019649479974139225,
+        "empirical_position_err_rmse_yd": 0.0326,
+        "assumed_sigma_major_median_yd": 0.0419,
+        "median_mahalanobis_distance_smoothed": 1.0479,
+        "median_mahalanobis_distance_raw_measurement_covariance": 0.8125,
+        "mean_gate_statistic_accepted_clean": 1.5848,
+        "median_gate_statistic_accepted_clean": 1.296535371377408,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 0.7923,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 0.4763,
+        "jitter_vs_model_explanation": "First-order explanation of the coverage gap: the injected harness jitter is larger than the frozen 1 px footpoint-noise assumption, so the reported covariance is too small by roughly the ratio below. This is a diagnostic derivation, not a calibration.",
+        "jitter_vs_model_prediction": {
+          "assumed_footpoint_sigma_u_px": 0.4131,
+          "assumed_footpoint_sigma_v_px": 0.5902,
+          "observed_footpoint_jitter_std_u_px": 0.4849,
+          "observed_footpoint_jitter_std_v_px": 0.4502,
+          "predicted_covariance_scale_k2": 0.9796,
+          "predicted_coverage_68_pct": 68.74,
+          "predicted_coverage_95_pct": 95.3
+        }
+      },
+      "footpoint_jitter_stats": {
+        "observed_jitter_std_u_px": 0.4848618273116311,
+        "observed_jitter_std_v_px": 0.450172791308138,
+        "assumed_footpoint_sigma_u_px": 0.41314000000000023,
+        "assumed_footpoint_sigma_v_px": 0.5902000000000001,
+        "n_fixture_footpoints": 120
+      },
       "speed_err_median_yd_s": 0.13480000000000003,
       "velocity_rmse_yd_s": 1.2007,
       "accel_mag_err_median_yd_s2": 6.54805,
+      "acceleration_status": "experimental_not_validated",
       "gt_accel_mag_median_yd_s2": 0.0,
       "gt_speed_median_yd_s": 4.5,
       "dead_reckoning_samples": 9,
@@ -724,6 +2357,7 @@
       },
       "samples_with_position_in_unknown_geometry": 0,
       "image_space_jumps_flagged": 0,
+      "image_space_plausibility_flags_total": 0,
       "reinitialized_after_gap": 0,
       "reinitialized_after_rejections": 1,
       "filter_reinitializations": 1,
@@ -750,8 +2384,8 @@
       "projection_recovery_latency_frames_max": 5,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 5,
-      "mean_runtime_ms_per_frame": 3.941,
-      "mean_runtime_ms_per_sample": 0.593,
+      "mean_runtime_ms_per_frame": 3.801,
+      "mean_runtime_ms_per_sample": 0.572,
       "image_space_ema_field_err_median_yd": 0.1618028707395608
     },
     {
@@ -768,6 +2402,35 @@
       "n_tracks": 7,
       "n_samples": 147,
       "expected_samples": 144,
+      "dominant_track_rule": "lifetime_sample_count_then_lowest_track_id",
+      "dominant_track_id_by_gt": {
+        "1": 2,
+        "2": 4,
+        "3": 7,
+        "4": 6,
+        "5": 5,
+        "6": 1
+      },
+      "dominant_track_alternatives": {
+        "positioned_sample_count_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.027268905318462017,
+          "selection_rule_is_diagnostic_only": true
+        },
+        "longest_observed_run_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.027268905318462017,
+          "selection_rule_is_diagnostic_only": true
+        }
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 0,
+        "tracks_without_any_label": 0,
+        "tracks": {},
+        "note": "A track whose samples carry two different ground-truth labels means the tracker kept one track_id alive across a player change (observed after the camera cut). Samples are still scored against the player they claim (CLEAR-MOTA per-frame convention); this block makes the contamination visible instead of hiding it."
+      },
       "dominant_samples": 135,
       "measured_dominant_samples": 120,
       "observed_dominant_samples": 135,
@@ -795,11 +2458,252 @@
       "field_pos_err_p90_yd": 0.059176833115526094,
       "field_pos_err_rmse_yd": 0.0384,
       "smoothing_error_reduction_pct": 46.78,
+      "all_matched_track_field_err_median_yd": 0.02727108253426553,
+      "all_matched_track_samples": 126,
+      "non_dominant_track_field_err_median_yd": 0.04070270719098745,
+      "non_dominant_track_samples": 6,
+      "non_dominant_track_samples_total": 11,
+      "dominant_track_samples_total": 136,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 1,
       "spurious_track_field_err_median_yd": 0.04070270719098745,
       "spurious_track_samples": 6,
+      "excluded_gt_player_frames": 9,
+      "dominant_fraction_of_gt_player_frames": 0.9375,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 6,
+        "active_association_swap": 1,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_taxonomy_total": 7,
+      "fragmentation_n_matched_tracks": 7,
+      "fragmentation_dominant_tracks_total": 6,
+      "fragmentation_excluded_from_dominant_total": 1,
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 1,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_fragment_tracks_excluded_from_dominant": 1,
+      "fragmentation_tracks_per_gt_player": {
+        "1": 1,
+        "2": 1,
+        "3": 2,
+        "4": 1,
+        "5": 1,
+        "6": 1
+      },
+      "fragmentation_max_tracks_per_gt_player": 2,
+      "fragmentation_samples_per_track": {
+        "1": 24,
+        "2": 24,
+        "3": 11,
+        "4": 24,
+        "5": 24,
+        "6": 24,
+        "7": 16
+      },
+      "track_table": [
+        {
+          "track_id": 1,
+          "gt_id": 6,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 21,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 2,
+          "gt_id": 1,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 21,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 3,
+          "gt_id": 3,
+          "first_frame": 0,
+          "last_frame": 10,
+          "n_samples": 11,
+          "n_observed": 8,
+          "n_positioned": 6,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 4,
+          "gt_id": 2,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 21,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 5,
+          "gt_id": 5,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 21,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 6,
+          "gt_id": 4,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 21,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 7,
+          "gt_id": 3,
+          "first_frame": 8,
+          "last_frame": 23,
+          "n_samples": 16,
+          "n_observed": 16,
+          "n_positioned": 15,
+          "n_dead_reckoned": 0,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        }
+      ],
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 102,
+        "clean_samples_accepted": 102,
+        "clean_samples_accepted_during_warmup": 18,
+        "clean_samples_rejected": 0,
+        "clean_samples_warmup_bypassed": 18,
+        "false_rejection_rate": 0.0,
+        "false_rejection_rate_including_warmup": 0.0,
+        "corrupted_samples_evaluated": 0,
+        "corrupted_samples_rejected": 0,
+        "corrupted_samples_accepted": 0,
+        "true_rejection_rate_on_corrupted": null,
+        "dead_reckoned_samples_after_false_rejection": 0,
+        "rejections_by_innovation_gate": 0,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 0,
+        "rejections_on_dominant_tracks": 0,
+        "rejections_by_innovation_gate_on_dominant_tracks": 0,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 2,
+        "plausibility_gate_can_reject_measurements": false,
+        "unpositioned_samples": 3,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 2,
+          "geometry_refused": 1,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "median_gt_error_of_falsely_rejected_samples_yd": null,
+        "median_gate_statistic_of_false_rejections": null,
+        "median_gate_statistic_of_corrupted_rejections": null
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "The reported covariance is an a priori engineering model (footpoint pixel noise propagated through the homography Jacobian plus a propagation-drift allowance). It is NOT statistically calibrated against data: empirical coverage is reported per split, per geometry state, and before/after the smoothing stage, and the gap is explained rather than tuned away. Do not read the reported sigma as a calibrated confidence interval.",
+        "coverage_evaluated_samples": 120,
+        "coverage_note": "Coverage uses CLEAN accepted measurements only; accepted injected outliers are counted separately (injected_accepted_samples_excluded_from_coverage) and included in the *_including_injected_events variants so both views stay available.",
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "coverage_68_pct_smoothed_covariance": 67.5,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 67.5,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 98.33,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 81.67,
+        "coverage_95_pct_smoothed_covariance": 98.33,
+        "coverage_68_pct_raw_measurement_covariance": 81.67,
+        "coverage_95_pct_raw_measurement_covariance": 99.17,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 65.69,
+          "propagated": 77.78
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 98.04,
+          "propagated": 100.0
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 102,
+          "propagated": 18
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 67.5
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": null,
+          "not_inflated": 98.33
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 0,
+          "not_inflated": 120
+        },
+        "empirical_position_err_median_yd": 0.027268905318462017,
+        "empirical_position_err_rmse_yd": 0.0384,
+        "assumed_sigma_major_median_yd": 0.048299999999999996,
+        "median_mahalanobis_distance_smoothed": 1.3026,
+        "median_mahalanobis_distance_raw_measurement_covariance": 0.9133,
+        "mean_gate_statistic_accepted_clean": 1.2462,
+        "median_gate_statistic_accepted_clean": 0.8169606090506305,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 1.2242,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 0.6018,
+        "jitter_vs_model_explanation": "First-order explanation of the coverage gap: the injected harness jitter is larger than the frozen 1 px footpoint-noise assumption, so the reported covariance is too small by roughly the ratio below. This is a diagnostic derivation, not a calibration.",
+        "jitter_vs_model_prediction": {
+          "assumed_footpoint_sigma_u_px": 0.4131,
+          "assumed_footpoint_sigma_v_px": 0.5902,
+          "observed_footpoint_jitter_std_u_px": 0.4855,
+          "observed_footpoint_jitter_std_v_px": 0.4527,
+          "predicted_covariance_scale_k2": 0.9846,
+          "predicted_coverage_68_pct": 68.55,
+          "predicted_coverage_95_pct": 95.23
+        }
+      },
+      "footpoint_jitter_stats": {
+        "observed_jitter_std_u_px": 0.48550347388310544,
+        "observed_jitter_std_v_px": 0.4526525834188356,
+        "assumed_footpoint_sigma_u_px": 0.4131400000000002,
+        "assumed_footpoint_sigma_v_px": 0.5902000000000002,
+        "n_fixture_footpoints": 144
+      },
       "speed_err_median_yd_s": 0.14189999999999925,
       "velocity_rmse_yd_s": 1.2116,
       "accel_mag_err_median_yd_s2": 5.29865,
+      "acceleration_status": "experimental_not_validated",
       "gt_accel_mag_median_yd_s2": 0.0,
       "gt_speed_median_yd_s": 4.6,
       "dead_reckoning_samples": 15,
@@ -835,6 +2739,7 @@
       },
       "samples_with_position_in_unknown_geometry": 0,
       "image_space_jumps_flagged": 2,
+      "image_space_plausibility_flags_total": 2,
       "reinitialized_after_gap": 0,
       "reinitialized_after_rejections": 0,
       "filter_reinitializations": 0,
@@ -861,8 +2766,8 @@
       "projection_recovery_latency_frames_max": 3,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 0,
-      "mean_runtime_ms_per_frame": 3.204,
-      "mean_runtime_ms_per_sample": 0.523,
+      "mean_runtime_ms_per_frame": 3.833,
+      "mean_runtime_ms_per_sample": 0.626,
       "image_space_ema_field_err_median_yd": 0.1479624816185637
     },
     {
@@ -879,6 +2784,35 @@
       "n_tracks": 7,
       "n_samples": 147,
       "expected_samples": 144,
+      "dominant_track_rule": "lifetime_sample_count_then_lowest_track_id",
+      "dominant_track_id_by_gt": {
+        "1": 7,
+        "2": 5,
+        "3": 2,
+        "4": 6,
+        "5": 4,
+        "6": 1
+      },
+      "dominant_track_alternatives": {
+        "positioned_sample_count_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.05797055171664223,
+          "selection_rule_is_diagnostic_only": true
+        },
+        "longest_observed_run_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.05797055171664223,
+          "selection_rule_is_diagnostic_only": true
+        }
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 0,
+        "tracks_without_any_label": 0,
+        "tracks": {},
+        "note": "A track whose samples carry two different ground-truth labels means the tracker kept one track_id alive across a player change (observed after the camera cut). Samples are still scored against the player they claim (CLEAR-MOTA per-frame convention); this block makes the contamination visible instead of hiding it."
+      },
       "dominant_samples": 134,
       "measured_dominant_samples": 104,
       "observed_dominant_samples": 132,
@@ -906,11 +2840,252 @@
       "field_pos_err_p90_yd": 0.13331013043896645,
       "field_pos_err_rmse_yd": 0.0836,
       "smoothing_error_reduction_pct": 37.86,
+      "all_matched_track_field_err_median_yd": 0.05797623488590338,
+      "all_matched_track_samples": 111,
+      "non_dominant_track_field_err_median_yd": 0.08252843203703931,
+      "non_dominant_track_samples": 7,
+      "non_dominant_track_samples_total": 13,
+      "dominant_track_samples_total": 134,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 0,
       "spurious_track_field_err_median_yd": 0.08252843203703931,
       "spurious_track_samples": 7,
+      "excluded_gt_player_frames": 10,
+      "dominant_fraction_of_gt_player_frames": 0.9306,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 6,
+        "active_association_swap": 1,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_taxonomy_total": 7,
+      "fragmentation_n_matched_tracks": 7,
+      "fragmentation_dominant_tracks_total": 6,
+      "fragmentation_excluded_from_dominant_total": 1,
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 1,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_fragment_tracks_excluded_from_dominant": 1,
+      "fragmentation_tracks_per_gt_player": {
+        "1": 2,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 1
+      },
+      "fragmentation_max_tracks_per_gt_player": 2,
+      "fragmentation_samples_per_track": {
+        "1": 24,
+        "2": 24,
+        "3": 13,
+        "4": 24,
+        "5": 24,
+        "6": 24,
+        "7": 14
+      },
+      "track_table": [
+        {
+          "track_id": 1,
+          "gt_id": 6,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 18,
+          "n_dead_reckoned": 6,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 2,
+          "gt_id": 3,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 19,
+          "n_dead_reckoned": 5,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 3,
+          "gt_id": 1,
+          "first_frame": 0,
+          "last_frame": 12,
+          "n_samples": 13,
+          "n_observed": 10,
+          "n_positioned": 7,
+          "n_dead_reckoned": 6,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 4,
+          "gt_id": 5,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 19,
+          "n_dead_reckoned": 5,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 5,
+          "gt_id": 2,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 24,
+          "n_positioned": 20,
+          "n_dead_reckoned": 4,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 6,
+          "gt_id": 4,
+          "first_frame": 0,
+          "last_frame": 23,
+          "n_samples": 24,
+          "n_observed": 22,
+          "n_positioned": 16,
+          "n_dead_reckoned": 8,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 7,
+          "gt_id": 1,
+          "first_frame": 10,
+          "last_frame": 23,
+          "n_samples": 14,
+          "n_observed": 14,
+          "n_positioned": 12,
+          "n_dead_reckoned": 2,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        }
+      ],
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 106,
+        "clean_samples_accepted": 74,
+        "clean_samples_accepted_during_warmup": 26,
+        "clean_samples_rejected": 32,
+        "clean_samples_warmup_bypassed": 26,
+        "false_rejection_rate": 0.301887,
+        "false_rejection_rate_including_warmup": 0.242424,
+        "corrupted_samples_evaluated": 0,
+        "corrupted_samples_rejected": 0,
+        "corrupted_samples_accepted": 0,
+        "true_rejection_rate_on_corrupted": null,
+        "dead_reckoned_samples_after_false_rejection": 28,
+        "rejections_by_innovation_gate": 35,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 35,
+        "rejections_on_dominant_tracks": 32,
+        "rejections_by_innovation_gate_on_dominant_tracks": 32,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 0,
+        "plausibility_gate_can_reject_measurements": false,
+        "unpositioned_samples": 0,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 0,
+          "geometry_refused": 0,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "median_gt_error_of_falsely_rejected_samples_yd": 0.10483863770694891,
+        "median_gate_statistic_of_false_rejections": 14.393027593242085,
+        "median_gate_statistic_of_corrupted_rejections": null
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "The reported covariance is an a priori engineering model (footpoint pixel noise propagated through the homography Jacobian plus a propagation-drift allowance). It is NOT statistically calibrated against data: empirical coverage is reported per split, per geometry state, and before/after the smoothing stage, and the gap is explained rather than tuned away. Do not read the reported sigma as a calibrated confidence interval.",
+        "coverage_evaluated_samples": 104,
+        "coverage_note": "Coverage uses CLEAN accepted measurements only; accepted injected outliers are counted separately (injected_accepted_samples_excluded_from_coverage) and included in the *_including_injected_events variants so both views stay available.",
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "coverage_68_pct_smoothed_covariance": 14.42,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 14.42,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 40.38,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 23.08,
+        "coverage_95_pct_smoothed_covariance": 40.38,
+        "coverage_68_pct_raw_measurement_covariance": 23.08,
+        "coverage_95_pct_raw_measurement_covariance": 51.92,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 14.42,
+          "propagated": null
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 40.38,
+          "propagated": null
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 104,
+          "propagated": 0
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": 0.0,
+          "not_inflated": 15.0
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": 25.0,
+          "not_inflated": 41.0
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 4,
+          "not_inflated": 100
+        },
+        "empirical_position_err_median_yd": 0.05797055171664223,
+        "empirical_position_err_rmse_yd": 0.0836,
+        "assumed_sigma_major_median_yd": 0.0495,
+        "median_mahalanobis_distance_smoothed": 2.8853,
+        "median_mahalanobis_distance_raw_measurement_covariance": 2.3503,
+        "mean_gate_statistic_accepted_clean": 4.4413,
+        "median_gate_statistic_accepted_clean": 3.7759165777898063,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 6.0067,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 3.9854,
+        "jitter_vs_model_explanation": "First-order explanation of the coverage gap: the injected harness jitter is larger than the frozen 1 px footpoint-noise assumption, so the reported covariance is too small by roughly the ratio below. This is a diagnostic derivation, not a calibration.",
+        "jitter_vs_model_prediction": {
+          "assumed_footpoint_sigma_u_px": 0.4131,
+          "assumed_footpoint_sigma_v_px": 0.5902,
+          "observed_footpoint_jitter_std_u_px": 0.9732,
+          "observed_footpoint_jitter_std_v_px": 0.9079,
+          "predicted_covariance_scale_k2": 3.9576,
+          "predicted_coverage_68_pct": 25.01,
+          "predicted_coverage_95_pct": 53.09
+        }
+      },
+      "footpoint_jitter_stats": {
+        "observed_jitter_std_u_px": 0.9731962596330451,
+        "observed_jitter_std_v_px": 0.9078928533986774,
+        "assumed_footpoint_sigma_u_px": 0.4131400000000001,
+        "assumed_footpoint_sigma_v_px": 0.5902000000000003,
+        "n_fixture_footpoints": 142
+      },
       "speed_err_median_yd_s": 0.22155000000000002,
       "velocity_rmse_yd_s": 1.8044,
       "accel_mag_err_median_yd_s2": 14.0847,
+      "acceleration_status": "experimental_not_validated",
       "gt_accel_mag_median_yd_s2": 0.0,
       "gt_speed_median_yd_s": 4.0,
       "dead_reckoning_samples": 30,
@@ -946,6 +3121,7 @@
       },
       "samples_with_position_in_unknown_geometry": 0,
       "image_space_jumps_flagged": 0,
+      "image_space_plausibility_flags_total": 0,
       "reinitialized_after_gap": 0,
       "reinitialized_after_rejections": 4,
       "filter_reinitializations": 4,
@@ -972,8 +3148,8 @@
       "projection_recovery_latency_frames_max": 2,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 35,
-      "mean_runtime_ms_per_frame": 3.043,
-      "mean_runtime_ms_per_sample": 0.497,
+      "mean_runtime_ms_per_frame": 3.903,
+      "mean_runtime_ms_per_sample": 0.637,
       "image_space_ema_field_err_median_yd": 0.22968127204436273
     },
     {
@@ -990,6 +3166,35 @@
       "n_tracks": 7,
       "n_samples": 124,
       "expected_samples": 120,
+      "dominant_track_rule": "lifetime_sample_count_then_lowest_track_id",
+      "dominant_track_id_by_gt": {
+        "1": 3,
+        "2": 5,
+        "3": 2,
+        "4": 6,
+        "5": 4,
+        "6": 1
+      },
+      "dominant_track_alternatives": {
+        "positioned_sample_count_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.04666904755831391,
+          "selection_rule_is_diagnostic_only": true
+        },
+        "longest_observed_run_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.04666904755831391,
+          "selection_rule_is_diagnostic_only": true
+        }
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 0,
+        "tracks_without_any_label": 0,
+        "tracks": {},
+        "note": "A track whose samples carry two different ground-truth labels means the tracker kept one track_id alive across a player change (observed after the camera cut). Samples are still scored against the player they claim (CLEAR-MOTA per-frame convention); this block makes the contamination visible instead of hiding it."
+      },
       "dominant_samples": 120,
       "measured_dominant_samples": 97,
       "observed_dominant_samples": 116,
@@ -1017,11 +3222,252 @@
       "field_pos_err_p90_yd": 0.0998675089964723,
       "field_pos_err_rmse_yd": 0.0639,
       "smoothing_error_reduction_pct": 31.89,
+      "all_matched_track_field_err_median_yd": 0.046921373394743865,
+      "all_matched_track_samples": 98,
+      "non_dominant_track_field_err_median_yd": 1.159213988864251,
+      "non_dominant_track_samples": 1,
+      "non_dominant_track_samples_total": 4,
+      "dominant_track_samples_total": 120,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 0,
       "spurious_track_field_err_median_yd": 1.159213988864251,
       "spurious_track_samples": 1,
+      "excluded_gt_player_frames": 0,
+      "dominant_fraction_of_gt_player_frames": 1.0,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 6,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_taxonomy_total": 7,
+      "fragmentation_n_matched_tracks": 7,
+      "fragmentation_dominant_tracks_total": 6,
+      "fragmentation_excluded_from_dominant_total": 1,
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 0,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 1,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_fragment_tracks_excluded_from_dominant": 1,
+      "fragmentation_tracks_per_gt_player": {
+        "1": 1,
+        "2": 1,
+        "3": 1,
+        "4": 1,
+        "5": 1,
+        "6": 2
+      },
+      "fragmentation_max_tracks_per_gt_player": 2,
+      "fragmentation_samples_per_track": {
+        "1": 20,
+        "2": 20,
+        "3": 20,
+        "4": 20,
+        "5": 20,
+        "6": 20,
+        "7": 4
+      },
+      "track_table": [
+        {
+          "track_id": 1,
+          "gt_id": 6,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 19,
+          "n_positioned": 13,
+          "n_dead_reckoned": 7,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 2,
+          "gt_id": 3,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 16,
+          "n_dead_reckoned": 4,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 3,
+          "gt_id": 1,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 17,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 4,
+          "gt_id": 5,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 19,
+          "n_positioned": 15,
+          "n_dead_reckoned": 5,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 5,
+          "gt_id": 2,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 18,
+          "n_positioned": 16,
+          "n_dead_reckoned": 4,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 6,
+          "gt_id": 4,
+          "first_frame": 0,
+          "last_frame": 19,
+          "n_samples": 20,
+          "n_observed": 20,
+          "n_positioned": 20,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 7,
+          "gt_id": 6,
+          "first_frame": 12,
+          "last_frame": 15,
+          "n_samples": 4,
+          "n_observed": 1,
+          "n_positioned": 1,
+          "n_dead_reckoned": 3,
+          "origin_category": "outlier_induced_spawn",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        }
+      ],
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 94,
+        "clean_samples_accepted": 73,
+        "clean_samples_accepted_during_warmup": 22,
+        "clean_samples_rejected": 21,
+        "clean_samples_warmup_bypassed": 22,
+        "false_rejection_rate": 0.223404,
+        "false_rejection_rate_including_warmup": 0.181034,
+        "corrupted_samples_evaluated": 0,
+        "corrupted_samples_rejected": 0,
+        "corrupted_samples_accepted": 0,
+        "true_rejection_rate_on_corrupted": null,
+        "dead_reckoned_samples_after_false_rejection": 19,
+        "rejections_by_innovation_gate": 21,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 21,
+        "rejections_on_dominant_tracks": 21,
+        "rejections_by_innovation_gate_on_dominant_tracks": 21,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 0,
+        "plausibility_gate_can_reject_measurements": false,
+        "unpositioned_samples": 0,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 0,
+          "geometry_refused": 0,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "median_gt_error_of_falsely_rejected_samples_yd": 0.08561682681045332,
+        "median_gate_statistic_of_false_rejections": 14.092654563819321,
+        "median_gate_statistic_of_corrupted_rejections": null
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "The reported covariance is an a priori engineering model (footpoint pixel noise propagated through the homography Jacobian plus a propagation-drift allowance). It is NOT statistically calibrated against data: empirical coverage is reported per split, per geometry state, and before/after the smoothing stage, and the gap is explained rather than tuned away. Do not read the reported sigma as a calibrated confidence interval.",
+        "coverage_evaluated_samples": 97,
+        "coverage_note": "Coverage uses CLEAN accepted measurements only; accepted injected outliers are counted separately (injected_accepted_samples_excluded_from_coverage) and included in the *_including_injected_events variants so both views stay available.",
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "coverage_68_pct_smoothed_covariance": 31.96,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 31.96,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 61.86,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 46.39,
+        "coverage_95_pct_smoothed_covariance": 61.86,
+        "coverage_68_pct_raw_measurement_covariance": 46.39,
+        "coverage_95_pct_raw_measurement_covariance": 75.26,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 31.96,
+          "propagated": null
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 61.86,
+          "propagated": null
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 97,
+          "propagated": 0
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": 0.0,
+          "not_inflated": 32.63
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": 0.0,
+          "not_inflated": 63.16
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 2,
+          "not_inflated": 95
+        },
+        "empirical_position_err_median_yd": 0.04666904755831391,
+        "empirical_position_err_rmse_yd": 0.0639,
+        "assumed_sigma_major_median_yd": 0.0408,
+        "median_mahalanobis_distance_smoothed": 2.0695,
+        "median_mahalanobis_distance_raw_measurement_covariance": 1.5424,
+        "mean_gate_statistic_accepted_clean": 3.6772,
+        "median_gate_statistic_accepted_clean": 2.787616099193196,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 3.0902,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 1.7165,
+        "jitter_vs_model_explanation": "First-order explanation of the coverage gap: the injected harness jitter is larger than the frozen 1 px footpoint-noise assumption, so the reported covariance is too small by roughly the ratio below. This is a diagnostic derivation, not a calibration.",
+        "jitter_vs_model_prediction": {
+          "assumed_footpoint_sigma_u_px": 0.9343,
+          "assumed_footpoint_sigma_v_px": 1.3348,
+          "observed_footpoint_jitter_std_u_px": 1.8198,
+          "observed_footpoint_jitter_std_v_px": 1.6846,
+          "predicted_covariance_scale_k2": 2.6931,
+          "predicted_coverage_68_pct": 34.49,
+          "predicted_coverage_95_pct": 67.12
+        }
+      },
+      "footpoint_jitter_stats": {
+        "observed_jitter_std_u_px": 1.8197945332812289,
+        "observed_jitter_std_v_px": 1.6846111819840093,
+        "assumed_footpoint_sigma_u_px": 0.9343481313203092,
+        "assumed_footpoint_sigma_v_px": 1.3347830447432987,
+        "n_fixture_footpoints": 117
+      },
       "speed_err_median_yd_s": 0.2649000000000008,
       "velocity_rmse_yd_s": 1.637,
       "accel_mag_err_median_yd_s2": 11.3515,
+      "acceleration_status": "experimental_not_validated",
       "gt_accel_mag_median_yd_s2": 0.0,
       "gt_speed_median_yd_s": 4.799999999999999,
       "dead_reckoning_samples": 23,
@@ -1059,6 +3505,7 @@
       },
       "samples_with_position_in_unknown_geometry": 0,
       "image_space_jumps_flagged": 0,
+      "image_space_plausibility_flags_total": 0,
       "reinitialized_after_gap": 0,
       "reinitialized_after_rejections": 2,
       "filter_reinitializations": 2,
@@ -1085,8 +3532,8 @@
       "projection_recovery_latency_frames_max": 2,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 21,
-      "mean_runtime_ms_per_frame": 3.555,
-      "mean_runtime_ms_per_sample": 0.573,
+      "mean_runtime_ms_per_frame": 3.814,
+      "mean_runtime_ms_per_sample": 0.615,
       "image_space_ema_field_err_median_yd": 0.15379887535037867
     },
     {
@@ -1103,6 +3550,40 @@
       "n_tracks": 11,
       "n_samples": 159,
       "expected_samples": 144,
+      "dominant_track_rule": "lifetime_sample_count_then_lowest_track_id",
+      "dominant_track_id_by_gt": {
+        "1": 8,
+        "2": 10,
+        "3": 9,
+        "4": 11,
+        "5": 4,
+        "6": 7
+      },
+      "dominant_track_alternatives": {
+        "positioned_sample_count_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.012478696496558514,
+          "selection_rule_is_diagnostic_only": true
+        },
+        "longest_observed_run_then_lowest_track_id": {
+          "agreeing_players": 6,
+          "players": 6,
+          "field_pos_err_median_yd": 0.012478696496558514,
+          "selection_rule_is_diagnostic_only": true
+        }
+      },
+      "identity_contamination": {
+        "tracks_with_multiple_gt_labels": 1,
+        "tracks_without_any_label": 0,
+        "tracks": {
+          "4": {
+            "2": 5,
+            "5": 19
+          }
+        },
+        "note": "A track whose samples carry two different ground-truth labels means the tracker kept one track_id alive across a player change (observed after the camera cut). Samples are still scored against the player they claim (CLEAR-MOTA per-frame convention); this block makes the contamination visible instead of hiding it."
+      },
       "dominant_samples": 99,
       "measured_dominant_samples": 92,
       "observed_dominant_samples": 97,
@@ -1130,11 +3611,321 @@
       "field_pos_err_p90_yd": 0.025347684936465078,
       "field_pos_err_rmse_yd": 0.0169,
       "smoothing_error_reduction_pct": 45.2,
+      "all_matched_track_field_err_median_yd": 0.01312178692329878,
+      "all_matched_track_samples": 122,
+      "non_dominant_track_field_err_median_yd": 0.015480287789580525,
+      "non_dominant_track_samples": 30,
+      "non_dominant_track_samples_total": 45,
+      "dominant_track_samples_total": 114,
+      "unattributed_samples_total": 0,
+      "dominant_track_samples_without_position": 15,
       "spurious_track_field_err_median_yd": 0.015480287789580525,
       "spurious_track_samples": 30,
+      "excluded_gt_player_frames": 45,
+      "dominant_fraction_of_gt_player_frames": 0.6875,
+      "fragmentation_taxonomy": {
+        "legitimate_new_track": 6,
+        "active_association_swap": 6,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_taxonomy_total": 12,
+      "fragmentation_n_matched_tracks": 11,
+      "fragmentation_dominant_tracks_total": 6,
+      "fragmentation_excluded_from_dominant_total": 6,
+      "fragmentation_excluded_by_origin": {
+        "legitimate_new_track": 6,
+        "active_association_swap": 0,
+        "post_expiration_reinitialization": 0,
+        "outlier_induced_spawn": 0,
+        "unmatched_spurious_track": 0
+      },
+      "fragmentation_fragment_tracks_excluded_from_dominant": 6,
+      "fragmentation_tracks_per_gt_player": {
+        "1": 2,
+        "2": 2,
+        "3": 2,
+        "4": 2,
+        "5": 2,
+        "6": 2
+      },
+      "fragmentation_max_tracks_per_gt_player": 2,
+      "fragmentation_samples_per_track": {
+        "1": 8,
+        "2": 8,
+        "3": 8,
+        "4": 24,
+        "5": 8,
+        "6": 8,
+        "7": 19,
+        "8": 19,
+        "9": 19,
+        "10": 19,
+        "11": 19
+      },
+      "track_table": [
+        {
+          "track_id": 1,
+          "gt_id": 6,
+          "first_frame": 0,
+          "last_frame": 7,
+          "n_samples": 8,
+          "n_observed": 5,
+          "n_positioned": 5,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 2,
+          "gt_id": 1,
+          "first_frame": 0,
+          "last_frame": 7,
+          "n_samples": 8,
+          "n_observed": 5,
+          "n_positioned": 5,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 3,
+          "gt_id": 3,
+          "first_frame": 0,
+          "last_frame": 7,
+          "n_samples": 8,
+          "n_observed": 5,
+          "n_positioned": 5,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 4,
+          "gt_id": 2,
+          "first_frame": 0,
+          "last_frame": 4,
+          "n_samples": 5,
+          "n_observed": 5,
+          "n_positioned": 5,
+          "n_dead_reckoned": 0,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": true
+        },
+        {
+          "track_id": 5,
+          "gt_id": 5,
+          "first_frame": 0,
+          "last_frame": 7,
+          "n_samples": 8,
+          "n_observed": 5,
+          "n_positioned": 5,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 6,
+          "gt_id": 4,
+          "first_frame": 0,
+          "last_frame": 7,
+          "n_samples": 8,
+          "n_observed": 5,
+          "n_positioned": 5,
+          "n_dead_reckoned": 3,
+          "origin_category": "legitimate_new_track",
+          "excluded_from_dominant_metrics": true,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 4,
+          "gt_id": 5,
+          "first_frame": 5,
+          "last_frame": 23,
+          "n_samples": 19,
+          "n_observed": 19,
+          "n_positioned": 14,
+          "n_dead_reckoned": 5,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": true
+        },
+        {
+          "track_id": 7,
+          "gt_id": 6,
+          "first_frame": 5,
+          "last_frame": 23,
+          "n_samples": 19,
+          "n_observed": 17,
+          "n_positioned": 14,
+          "n_dead_reckoned": 2,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 8,
+          "gt_id": 1,
+          "first_frame": 5,
+          "last_frame": 23,
+          "n_samples": 19,
+          "n_observed": 19,
+          "n_positioned": 16,
+          "n_dead_reckoned": 0,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 9,
+          "gt_id": 3,
+          "first_frame": 5,
+          "last_frame": 23,
+          "n_samples": 19,
+          "n_observed": 19,
+          "n_positioned": 16,
+          "n_dead_reckoned": 0,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 10,
+          "gt_id": 2,
+          "first_frame": 5,
+          "last_frame": 23,
+          "n_samples": 19,
+          "n_observed": 19,
+          "n_positioned": 16,
+          "n_dead_reckoned": 0,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        },
+        {
+          "track_id": 11,
+          "gt_id": 4,
+          "first_frame": 5,
+          "last_frame": 23,
+          "n_samples": 19,
+          "n_observed": 19,
+          "n_positioned": 16,
+          "n_dead_reckoned": 0,
+          "origin_category": "active_association_swap",
+          "excluded_from_dominant_metrics": false,
+          "track_carries_multiple_labels": false
+        }
+      ],
+      "rejection_accounting": {
+        "clean_samples_gate_evaluated": 77,
+        "clean_samples_accepted": 74,
+        "clean_samples_accepted_during_warmup": 17,
+        "clean_samples_rejected": 3,
+        "clean_samples_warmup_bypassed": 17,
+        "false_rejection_rate": 0.038961,
+        "false_rejection_rate_including_warmup": 0.031915,
+        "corrupted_samples_evaluated": 0,
+        "corrupted_samples_rejected": 0,
+        "corrupted_samples_accepted": 0,
+        "true_rejection_rate_on_corrupted": null,
+        "dead_reckoned_samples_after_false_rejection": 2,
+        "rejections_by_innovation_gate": 3,
+        "rejections_by_image_space_plausibility_gate": 0,
+        "rejections_all_tracks": 3,
+        "rejections_on_dominant_tracks": 3,
+        "rejections_by_innovation_gate_on_dominant_tracks": 3,
+        "rejections_by_plausibility_gate_on_dominant_tracks": 0,
+        "image_space_plausibility_flags": 1,
+        "plausibility_gate_can_reject_measurements": false,
+        "unpositioned_samples": 15,
+        "unpositioned_by_reason": {
+          "gap_exceeded": 0,
+          "geometry_refused": 15,
+          "footpoint_refused": 0,
+          "out_of_bounds": 0,
+          "other": 0
+        },
+        "median_gt_error_of_falsely_rejected_samples_yd": 0.009938851113390846,
+        "median_gate_statistic_of_false_rejections": 798.7486004172135,
+        "median_gate_statistic_of_corrupted_rejections": null
+      },
+      "uncertainty_diagnostics": {
+        "status": "not_statistically_calibrated",
+        "note": "The reported covariance is an a priori engineering model (footpoint pixel noise propagated through the homography Jacobian plus a propagation-drift allowance). It is NOT statistically calibrated against data: empirical coverage is reported per split, per geometry state, and before/after the smoothing stage, and the gap is explained rather than tuned away. Do not read the reported sigma as a calibrated confidence interval.",
+        "coverage_evaluated_samples": 92,
+        "coverage_note": "Coverage uses CLEAN accepted measurements only; accepted injected outliers are counted separately (injected_accepted_samples_excluded_from_coverage) and included in the *_including_injected_events variants so both views stay available.",
+        "coverage_excludes_injected_events": true,
+        "injected_accepted_samples_excluded_from_coverage": 0,
+        "median_mahalanobis_d2_of_injected_accepted_samples": null,
+        "coverage_68_pct_smoothed_covariance": 100.0,
+        "coverage_68_pct_smoothed_covariance_including_injected_events": 100.0,
+        "coverage_95_pct_smoothed_covariance_including_injected_events": 100.0,
+        "coverage_68_pct_raw_measurement_covariance_including_injected_events": 100.0,
+        "coverage_95_pct_smoothed_covariance": 100.0,
+        "coverage_68_pct_raw_measurement_covariance": 100.0,
+        "coverage_95_pct_raw_measurement_covariance": 100.0,
+        "coverage_68_pct_by_geometry_state": {
+          "calibrated": 100.0,
+          "propagated": null
+        },
+        "coverage_95_pct_by_geometry_state": {
+          "calibrated": 100.0,
+          "propagated": null
+        },
+        "coverage_samples_by_geometry_state": {
+          "calibrated": 92,
+          "propagated": 0
+        },
+        "coverage_68_pct_by_covariance_inflation": {
+          "inflated": 100.0,
+          "not_inflated": 100.0
+        },
+        "coverage_95_pct_by_covariance_inflation": {
+          "inflated": 100.0,
+          "not_inflated": 100.0
+        },
+        "coverage_samples_by_covariance_inflation": {
+          "inflated": 1,
+          "not_inflated": 91
+        },
+        "empirical_position_err_median_yd": 0.012478696496558514,
+        "empirical_position_err_rmse_yd": 0.0169,
+        "assumed_sigma_major_median_yd": 0.0463,
+        "median_mahalanobis_distance_smoothed": 0.5398,
+        "median_mahalanobis_distance_raw_measurement_covariance": 0.4855,
+        "mean_gate_statistic_accepted_clean": 6.9494,
+        "median_gate_statistic_accepted_clean": 0.21545884200746218,
+        "mean_gate_statistic_corrupted_rejected": null,
+        "covariance_scale_needed_k2_smoothed": 0.2102,
+        "covariance_scale_needed_k2_raw_measurement_covariance": 0.1701,
+        "jitter_vs_model_explanation": "First-order explanation of the coverage gap: the injected harness jitter is larger than the frozen 1 px footpoint-noise assumption, so the reported covariance is too small by roughly the ratio below. This is a diagnostic derivation, not a calibration.",
+        "jitter_vs_model_prediction": {
+          "assumed_footpoint_sigma_u_px": 0.4131,
+          "assumed_footpoint_sigma_v_px": 0.5902,
+          "observed_footpoint_jitter_std_u_px": 0.242,
+          "observed_footpoint_jitter_std_v_px": 0.2255,
+          "predicted_covariance_scale_k2": 0.2446,
+          "predicted_coverage_68_pct": 99.05,
+          "predicted_coverage_95_pct": 100.0
+        }
+      },
+      "footpoint_jitter_stats": {
+        "observed_jitter_std_u_px": 0.24199786247151786,
+        "observed_jitter_std_v_px": 0.22554121761132856,
+        "assumed_footpoint_sigma_u_px": 0.4131400000000001,
+        "assumed_footpoint_sigma_v_px": 0.5902000000000003,
+        "n_fixture_footpoints": 142
+      },
       "speed_err_median_yd_s": 0.05819999999999981,
       "velocity_rmse_yd_s": 0.9899,
       "accel_mag_err_median_yd_s2": 3.024,
+      "acceleration_status": "experimental_not_validated",
       "gt_accel_mag_median_yd_s2": 0.0,
       "gt_speed_median_yd_s": 3.8,
       "dead_reckoning_samples": 7,
@@ -1160,6 +3951,7 @@
       },
       "samples_with_position_in_unknown_geometry": 0,
       "image_space_jumps_flagged": 1,
+      "image_space_plausibility_flags_total": 1,
       "reinitialized_after_gap": 0,
       "reinitialized_after_rejections": 1,
       "filter_reinitializations": 1,
@@ -1186,16 +3978,36 @@
       "projection_recovery_latency_frames_max": 5,
       "absolute_yardline_violations": 0,
       "measurements_rejected_total": 3,
-      "mean_runtime_ms_per_frame": 3.733,
-      "mean_runtime_ms_per_sample": 0.563,
+      "mean_runtime_ms_per_frame": 3.665,
+      "mean_runtime_ms_per_sample": 0.553,
       "image_space_ema_field_err_median_yd": 0.11569862911579509
     }
   ],
   "determinism_check": {
-    "sequence_id": "traj_seq_04_val_jump_outliers",
+    "sequence_id": "traj_seq_01_train_linear_and_sprint",
     "deterministic": true,
     "differing_keys": [],
-    "note": "wall-clock runtime fields excluded"
+    "per_sequence": [
+      {
+        "sequence_id": "traj_seq_01_train_linear_and_sprint",
+        "split": "train",
+        "deterministic": true,
+        "differing_keys": []
+      },
+      {
+        "sequence_id": "traj_seq_04_val_jump_outliers",
+        "split": "val",
+        "deterministic": true,
+        "differing_keys": []
+      },
+      {
+        "sequence_id": "traj_seq_08_test_camera_cut_refusal_and_recovery",
+        "split": "test",
+        "deterministic": true,
+        "differing_keys": []
+      }
+    ],
+    "note": "wall-clock runtime fields excluded; one sequence from each split (TRAIN, VAL, frozen TEST) re-run through the identical code path"
   },
   "process_noise_ablation": {
     "note": "Comparison of the only constant that could attenuate real motion (the filter's process-noise acceleration scale). Measured on TRAIN + VAL only; TEST is excluded so this cannot be used to tune the frozen split. Shipped value remains 5.0.",
@@ -1203,23 +4015,26 @@
       "process_accel_std_yd_s2=0.5": {
         "train": {
           "field_pos_err_median_yd": 0.0273,
-          "smoothed_path_length_yd": 39.33,
-          "gt_path_length_yd": 38.43,
-          "motion_preservation_ratio_vs_gt": 1.0235,
-          "mean_sigma_major_yd": 0.0459
+          "smoothed_path_length_yd": 39.3325,
+          "gt_path_length_yd": 38.4286,
+          "mean_sigma_major_yd": 0.0469,
+          "motion_preservation_ratio_vs_gt": 1.0235
         },
         "val": {
           "field_pos_err_median_yd": 0.0221,
-          "smoothed_path_length_yd": 32.73,
-          "gt_path_length_yd": 33.32,
-          "motion_preservation_ratio_vs_gt": 0.9823,
-          "mean_sigma_major_yd": 0.0414
+          "smoothed_path_length_yd": 32.726,
+          "gt_path_length_yd": 33.3167,
+          "mean_sigma_major_yd": 0.0407,
+          "motion_preservation_ratio_vs_gt": 0.9823
         }
       }
-    }
+    },
+    "test_split_consulted": false
   },
   "real_frame_smoke_test": {
     "frame_id": "rf_01_sea_sf_smoke",
+    "skipped": false,
+    "frame_path": "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
     "detector_implementation": "turf_contrast_baseline_v1",
     "evaluation_scope": "single_frame_integration_smoke_test_no_ground_truth_trajectory",
     "quantitative_ground_truth_available": false,
@@ -1246,10 +4061,12 @@
     "note": "Single-frame smoke test only: one still frame cannot exercise multi-frame trajectory, smoothing, camera motion, or occlusion behaviour."
   },
   "limitations": [
-    "Player motion is synthetic deterministic field-space ground truth projected through real per-frame homographies: an engineering fixture, not recorded NFL trajectories.",
-    "Detection boxes are fixture boxes (fixture_detector_v1); image-space player detection accuracy remains unmeasured.",
-    "Coverage percentages evaluate the frozen uncertainty model against the synthetic jitter level of each sequence; they are not a validation of real broadcast detector noise models.",
+    "Player motion is synthetic deterministic field-space ground truth projected through real per-frame homographies: an engineering fixture, not recorded NFL trajectories. Real multi-frame trajectory accuracy is NOT measured.",
+    "Detection boxes are fixture boxes (fixture_detector_v1); image-based player detection accuracy remains unmeasured and no detection-accuracy number in this file is a detector metric.",
+    "The reported covariance is an a priori engineering model and is NOT statistically calibrated; empirical coverage is reported per split and per geometry state, and the gap is explained (jitter vs assumed pixel noise) rather than tuned away.",
+    "Acceleration is experimental: it is a clipped finite difference of the smoothed velocity, not a validated acceleration estimator.",
+    "Fragmentation is split by a deterministic taxonomy (active association swap / post-expiration reinitialization / outlier-induced spawn / legitimate new track / unmatched). The taxonomy is exhaustive and asserted against the track count, but the categories are harness-visible states, not inferred internal tracker modes.",
     "Camera pan/zoom is applied as an exact synthetic image-space transform; real broadcast camera motion also changes perspective, rolling shutter, and motion blur.",
-    "Single-frame real-frame smoke test only: no real multi-frame broadcast clip was available in this phase for trajectory validation."
+    "One single-frame real-frame smoke test (no ground truth) plus geometry-refusal/integration tests only: no real multi-frame broadcast clip was available in this phase."
   ]
 }

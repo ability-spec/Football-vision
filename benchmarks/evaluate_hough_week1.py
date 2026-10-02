@@ -67,9 +67,9 @@ def evaluate_held_out(cal, landmarks: List[Union[Tuple[str, float, float, float]
             label, x_yd, y_yd, v_true = item["label"], float(item["x_yd"]), float(item["y_yd"]), float(item["true_v_px"])
         else:
             label, x_yd, y_yd, v_true = item
-        # Predicted image point (u_pred, v_pred) for field point (x_yd, y_yd)
+        # v-coordinate of the predicted image point for field point (x_yd, y_yd)
         pt_img = cv2.perspectiveTransform(np.float32([[[x_yd, y_yd]]]), cal.H_inv)[0, 0]
-        u_pred, v_pred = float(pt_img[0]), float(pt_img[1])
+        v_pred = float(pt_img[1])
 
         # True image point lies on the yard line x = x_yd at row v = v_true:
         # Find the yard line for x_yd or interpolate its line equation from H_inv

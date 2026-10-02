@@ -28,11 +28,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from football_vision.data_paths import require_nfl_frame  # noqa: E402
 from football_vision import (
     CalibrationResult,
     FieldProjector,
     FixturePlayerDetector,
-    PlayerDetection,
     PlayerTrack,
     PlayerTracker,
     TorsoTeamClassifier,
@@ -569,11 +569,13 @@ def run_phase3_benchmark() -> Dict[str, Any]:
     # -----------------------------------------------------------------------
     # Real NFL Broadcast Single-Frame Perception & Projection Audit
     # -----------------------------------------------------------------------
+    # Real frames resolve through football_vision.data_paths (third-party assets are not
+    # vendored; FOOTBALL_VISION_NFL_FRAMES overrides the development default).
     real_nfl_frames = [
-        ("rf_01_sea_sf_val", "val", "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg", 15.0),
-        ("rf_02_nyj_jax_val", "val", "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-4.jpg", 50.0),
-        ("rf_03_no_car_test", "test", "/home/user/image-search/nfl-all-22-film-pre-snap-formation-offen-5.png", 80.0),
-        ("rf_04_scrum_uncal_test", "test", "/home/user/image-search/nfl-all-22-film-pre-snap-formation-offen-4.jpg", 40.0),
+        ("rf_01_sea_sf_val", "val", str(require_nfl_frame("nfl-game-broadcast-screenshot-1st-and-10-5.jpg")), 15.0),
+        ("rf_02_nyj_jax_val", "val", str(require_nfl_frame("nfl-game-broadcast-screenshot-1st-and-10-4.jpg")), 50.0),
+        ("rf_03_no_car_test", "test", str(require_nfl_frame("nfl-all-22-film-pre-snap-formation-offen-5.png")), 80.0),
+        ("rf_04_scrum_uncal_test", "test", str(require_nfl_frame("nfl-all-22-film-pre-snap-formation-offen-4.jpg")), 40.0),
     ]
 
     real_frame_audit: List[Dict[str, Any]] = []

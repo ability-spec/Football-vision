@@ -1,0 +1,51 @@
+name: CI
+
+# Minimal, honest CI: it runs exactly what can run on a CPU-only machine with no
+# third-party assets and no network services.
+#
+# What it does NOT do, and why:
+#   * It does not run the Phase 1/2/3/4 *benchmarks*. Those need the real NFL
+#     broadcast stills, which are third-party assets and are deliberately not
+#     vendored in this repository. Re-running them here would either fail or need
+#     checked-in images; instead the frozen benchmark JSON/PNG outputs are tracked
+#     in `outputs/` and their invariants are asserted by the test suite.
+#   * It does not install GPU/TensorRT/experimental extras and never downloads model
+#     weights.
+#   * It does not skip tests silently: tests that need the real frames report an
+#     explicit skip reason (see `football_vision/data_paths.py`), and the job prints
+#     the skip count so a skipped suite cannot look like a passing one.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: tests (python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install project (CPU-only dev extras)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Static analysis (ruff E9 plus pyflakes rules)
+        run: python -m ruff check .
+
+      - name: Unit + integration tests
+        # `-rs` prints the skip reasons: no real-frame assets exist on CI runners, so the
+        # geometry/perception tests that need them skip explicitly rather than silently
+        # disappearing behind a green check.
+        run: python -m pytest -v -rs

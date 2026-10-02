@@ -73,6 +73,14 @@ from football_vision.detection import (
 from football_vision.identity import TorsoTeamClassifier
 from football_vision.tracking import PlayerTracker
 from football_vision.projection import FieldProjector
+from football_vision.data_paths import (
+    NFL_FRAMES_ENV,
+    nfl_frames_dir,
+    resolve_nfl_frame,
+    require_nfl_frame,
+    missing_nfl_frames,
+    real_frames_skip_reason,
+)
 from football_vision.trajectory import (
     PlayerTrajectoryBuilder,
     ConstantVelocityFieldFilter,

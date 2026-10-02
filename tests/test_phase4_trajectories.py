@@ -14,9 +14,12 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 import pytest
 
+from football_vision.data_paths import (  # noqa: E402
+    real_frames_skip_reason,
+    resolve_nfl_frame,
+)
 from football_vision import (
     CalibrationResult,
-    FieldProjector,
     FootpointEstimate,
     PlayerTrack,
     PlayerTrajectoryBuilder,
@@ -43,7 +46,8 @@ from football_vision.trajectory.outlier import (
 ROOT = Path(__file__).resolve().parents[1]
 BENCHMARK_JSON = ROOT / "outputs" / "phase4_trajectory_benchmark.json"
 MANIFEST_JSON = ROOT / "data" / "benchmarks" / "phase4_trajectory_manifest.json"
-BASE_IMAGE = "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg"
+BASE_IMAGE_NAME = "nfl-game-broadcast-screenshot-1st-and-10-5.jpg"
+BASE_IMAGE = resolve_nfl_frame(BASE_IMAGE_NAME)  # may be None: unvendored third-party asset
 FPS = 30.0
 DT = 1.0 / FPS
 
@@ -55,7 +59,9 @@ DT = 1.0 / FPS
 def base_calibration() -> CalibrationResult:
     import cv2
 
-    img = cv2.imread(BASE_IMAGE)
+    if BASE_IMAGE is None:
+        pytest.skip(real_frames_skip_reason())
+    img = cv2.imread(str(BASE_IMAGE))
     assert img is not None
     cal = calibrate_frame(img, x_start_yd=15.0)
     assert cal.success and cal.can_project()
@@ -451,6 +457,19 @@ def test_builder_propagated_geometry_is_flagged_and_inflates_uncertainty(base_ca
     assert cal_samples[-1].sigma_major_yd < samples[-1].sigma_major_yd
 
 
+def test_builder_rejects_invalid_construction_parameters() -> None:
+    """Invalid construction parameters must raise instead of silently mis-scaling output."""
+    from football_vision.trajectory.builder import PlayerTrajectoryBuilder
+
+    for bad_fps in (0.0, -30.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            PlayerTrajectoryBuilder(fps=bad_fps)
+    with pytest.raises(ValueError):
+        PlayerTrajectoryBuilder(fps=FPS, max_gap_frames=-1)
+    with pytest.raises(ValueError):
+        PlayerTrajectoryBuilder(fps=FPS, gate_warmup_updates=-1)
+
+
 def test_builder_is_deterministic(base_calibration: CalibrationResult) -> None:
     def _run() -> List[Tuple[float, ...]]:
         builder = PlayerTrajectoryBuilder(fps=FPS)
@@ -580,7 +599,6 @@ def test_recovery_latency_is_measured_after_an_observed_gap(base_calibration: Ca
     n = 14
     points = [(24.0 + 0.10 * t, 30.0) for t in range(n)]
     # Frames 6,7,8 are absent from the detection stream entirely (track dropout).
-    frames_present = [t for t in range(n) if t not in (6, 7, 8)]
     for t in range(n):
         if t in (6, 7, 8):
             continue
@@ -630,7 +648,10 @@ def test_camera_cut_refusal_then_projection_recovery() -> None:
     """
     import cv2
 
-    img = cv2.imread(BASE_IMAGE)
+    if BASE_IMAGE is None:
+        pytest.skip(real_frames_skip_reason())
+    img = cv2.imread(str(BASE_IMAGE))
+    assert img is not None
     cal = calibrate_frame(img, x_start_yd=15.0)
     n = 16
     cut_frames = (5, 6, 7)
@@ -668,3 +689,417 @@ def test_camera_cut_refusal_then_projection_recovery() -> None:
     # Projection-recovery latency is reported, not hidden.
     assert builder.projection_recovery_latencies_frames[0] == 3
     assert builder.fabricated_field_positions == 0
+
+
+# ---------------------------------------------------------------------------
+# 7. Audit-remediation regressions (integrity of the benchmark harness itself)
+# ---------------------------------------------------------------------------
+def _load_evaluator():
+    """Import the benchmark harness as a module (no side effects at import time)."""
+    import importlib.util
+
+    path = ROOT / "benchmarks" / "evaluate_phase4_trajectories.py"
+    spec = importlib.util.spec_from_file_location("phase4_evaluator_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture(scope="module")
+def evaluator():
+    return _load_evaluator()
+
+
+@pytest.fixture(scope="module")
+def benchmark() -> dict:
+    assert BENCHMARK_JSON.exists(), "run benchmarks/evaluate_phase4_trajectories.py first"
+    return json.loads(BENCHMARK_JSON.read_text(encoding="utf-8"))
+
+
+def test_dominant_track_selection_uses_runtime_counters_only(evaluator) -> None:
+    """Regression test: the selection must not react to ground-truth-derived fields."""
+    candidates = [
+        {"track_id": 9, "n_samples": 5, "n_positioned": 1, "n_observed": 1, "longest_observed_run": 1},
+        {"track_id": 2, "n_samples": 12, "n_positioned": 12, "n_observed": 12, "longest_observed_run": 12},
+        {"track_id": 4, "n_samples": 12, "n_positioned": 3, "n_observed": 3, "longest_observed_run": 2},
+    ]
+    assert evaluator.select_dominant_track(candidates) == 2  # lifetime tie -> lowest track_id
+    assert evaluator.select_dominant_track(list(reversed(candidates))) == 2
+
+    # Poison the candidate dicts with ground-truth-derived fields that an oracle rule would use:
+    # a perfect error on a losing track and a terrible error on the winner must not move anything.
+    poisoned = [dict(candidate) for candidate in candidates]
+    poisoned[2].update({"field_pos_err_yd": 0.0, "field_pos_err_median_yd": 0.0, "gt_distance_yd": 0.0})
+    poisoned[1].update({"field_pos_err_yd": 99.0, "field_pos_err_median_yd": 99.0, "gt_distance_yd": 99.0})
+    assert evaluator.select_dominant_track(poisoned) == 2
+    assert evaluator.select_dominant_track(list(reversed(poisoned))) == 2
+
+    selection = evaluator.DOMINANT_TRACK_SELECTION
+    assert selection["rule"] == evaluator.DOMINANT_TRACK_RULE
+    assert selection["uses_ground_truth_trajectory"] is False
+    assert selection["uses_ground_truth_error"] is False
+    assert selection["uses_oracle_track_selection"] is False
+    assert selection["uses_future_information"] is False
+    assert not any("err" in item or "gt" in item for item in selection["inputs"])
+
+
+def test_benchmark_dominant_track_is_reproducible_from_published_counters(benchmark) -> None:
+    """The recorded dominant track must be re-derivable from runtime counters alone."""
+    for sequence in benchmark["sequences"]:
+        dominant_by_gt = {int(gid): int(tid) for gid, tid in sequence["dominant_track_id_by_gt"].items()}
+        candidates_by_gt: dict = {}
+        for row in sequence["track_table"]:
+            candidates_by_gt.setdefault(int(row["gt_id"]), []).append(
+                {"track_id": int(row["track_id"]), "n_samples": int(row["n_samples"])}
+            )
+        for gid, candidates in candidates_by_gt.items():
+            expected = min(
+                candidates,
+                key=lambda c: (-c["n_samples"], c["track_id"]),
+            )["track_id"]
+            assert dominant_by_gt[gid] == expected, (sequence["sequence_id"], gid)
+
+
+def test_benchmark_dominant_and_fragment_accounting_is_complete(benchmark) -> None:
+    for sequence in benchmark["sequences"]:
+        table = sequence["track_table"]
+        assert sum(int(row["n_samples"]) for row in table) == sequence["n_samples"]
+        # Every emitted sample is either in a dominant track, a fragment track, or unattributed.
+        assert (
+            sequence["dominant_track_samples_total"]
+            + sequence["non_dominant_track_samples_total"]
+            + sequence["unattributed_samples_total"]
+            == sequence["n_samples"]
+        )
+        assert sequence["dominant_track_samples_without_position"] == (
+            sequence["dominant_track_samples_total"] - sequence["dominant_samples"]
+        )
+        assert sequence["non_dominant_track_samples"] <= sequence["non_dominant_track_samples_total"]
+        dominant_rows = [row for row in table if not row["excluded_from_dominant_metrics"]]
+        assert len(dominant_rows) == sequence["n_players"]
+        assert sequence["fragmentation_taxonomy_total"] == len(table)
+        assert sum(sequence["fragmentation_samples_per_track"].values()) == sequence["n_samples"]
+
+    for split in ("train", "val", "test"):
+        agg = benchmark["splits"][split]
+        assert (
+            agg["dominant_track_samples_total"]
+            + agg["non_dominant_track_samples_total"]
+            + agg["unattributed_samples_total"]
+            == agg["n_samples"]
+        )
+        # Fragmentation is visible in aggregate: the origin histogram closes over ALL tracks,
+        # and the exclusion cross-tab closes over all non-dominant episodes.
+        # The origin histogram counts (player, track) EPISODES: every track contributes one
+        # episode per player label it carries, so a track that survives a player change adds
+        # exactly one extra episode. Episodes therefore close over tracks + contaminated tracks.
+        assert sum(agg["fragmentation_counts_by_origin"].values()) == agg["fragmentation_taxonomy_total"]
+        assert agg["fragmentation_taxonomy_total"] == agg["n_tracks"] + agg[
+            "identity_contamination"
+        ]["tracks_with_multiple_gt_labels"]
+        assert agg["fragmentation_n_matched_tracks"] == agg["n_tracks"] - agg[
+            "fragmentation_counts_by_origin"
+        ]["unmatched_spurious_track"]
+        assert agg["fragmentation_counts_by_origin"]["unmatched_spurious_track"] == 0
+        assert agg["fragmentation_excluded_from_dominant_total"] == sum(
+            agg["fragmentation_excluded_by_origin"].values()
+        )
+        # Episode-level partition: exactly one dominant episode per player-sequence, every
+        # other episode is an excluded fragment. (A track that survives a player change can be
+        # dominant for one player and an excluded fragment for the other, so this partition is
+        # stated over episodes, not tracks.)
+        assert agg["n_players"] + agg["fragmentation_excluded_from_dominant_total"] == agg[
+            "fragmentation_taxonomy_total"
+        ]
+        assert agg["fragmentation_dominant_tracks_total"] <= agg["n_players"]
+        assert agg["n_players"] == 6 * agg["num_sequences"]
+        # Every track that is not the dominant track for some player must be excluded from the
+        # dominant metrics; identity-contaminated tracks count as two episodes.
+        expected_excluded = sum(
+            int(sequence["fragmentation_fragment_tracks_excluded_from_dominant"])
+            for sequence in benchmark["sequences"]
+            if sequence["split"] == split
+        )
+        assert agg["fragmentation_fragment_tracks_excluded_from_dominant"] == expected_excluded
+        assert agg["fragmentation_fragment_tracks_excluded_from_dominant"] > 0 or split == "train"
+
+
+def test_fragmentation_taxonomy_is_exhaustive_and_internally_consistent(benchmark, evaluator) -> None:
+    categories = set(evaluator.FRAGMENTATION_CATEGORIES)
+    assert categories == set(evaluator.FRAGMENTATION_DEFINITIONS)
+    for sequence in benchmark["sequences"]:
+        taxonomy = sequence["fragmentation_taxonomy"]
+        assert set(taxonomy) == categories
+        assert sum(taxonomy.values()) == sequence["fragmentation_taxonomy_total"] == len(sequence["track_table"])
+        counted: dict = {category: 0 for category in categories}
+        for row in sequence["track_table"]:
+            assert row["origin_category"] in categories
+            counted[row["origin_category"]] += 1
+        assert counted == taxonomy, sequence["sequence_id"]
+        # Identity contamination is surfaced, not hidden by track-level attribution.
+        contamination = sequence["identity_contamination"]
+        multi_label = {
+            int(row["track_id"])
+            for row in sequence["track_table"]
+            if row["track_carries_multiple_labels"]
+        }
+        assert len(multi_label) == contamination["tracks_with_multiple_gt_labels"]
+        assert contamination["tracks_without_any_label"] == 0  # every fixture detection is labelled
+
+
+def test_rejection_accounting_separates_clean_from_corrupted(benchmark) -> None:
+    for split in ("train", "val", "test"):
+        accounting = benchmark["splits"][split]["rejection_accounting"]
+        gated = accounting["clean_samples_gate_evaluated"]
+        rejected = accounting["clean_samples_rejected"]
+        accepted = accounting["clean_samples_accepted"]
+        warmup = accounting["clean_samples_warmup_bypassed"]
+        # "Accepted" counts samples the gate accepted: rejected + accepted == gated. Samples
+        # accepted while the gate was bypassed by design (warm-up) are counted separately, so a
+        # reader can never mistake them for gated acceptances.
+        assert rejected + accepted == gated
+        assert accounting["clean_samples_accepted_during_warmup"] <= warmup
+        assert accounting["false_rejection_rate"] == pytest.approx(rejected / gated, abs=1e-6)
+        assert accounting["false_rejection_rate_including_warmup"] == pytest.approx(
+            rejected / (gated + warmup), abs=1e-6
+        )
+        assert (
+            accounting["corrupted_samples_rejected"] + accounting["corrupted_samples_accepted"]
+            == accounting["corrupted_samples_evaluated"]
+        )
+        if accounting["corrupted_samples_evaluated"]:
+            assert accounting["true_rejection_rate_on_corrupted"] == pytest.approx(
+                accounting["corrupted_samples_rejected"] / accounting["corrupted_samples_evaluated"],
+                abs=1e-6,
+            )
+        else:
+            assert accounting["true_rejection_rate_on_corrupted"] is None
+        # "Gate rejected bad data" is separated from "gate rejected good data", in two
+        # explicitly named scopes (all tracks vs dominant-track accounting).
+        assert accounting["rejections_all_tracks"] == (
+            accounting["rejections_by_innovation_gate"]
+            + accounting["rejections_by_image_space_plausibility_gate"]
+        )
+        assert accounting["rejections_on_dominant_tracks"] == rejected + accounting[
+            "corrupted_samples_rejected"
+        ]
+        assert accounting["rejections_on_dominant_tracks"] == (
+            accounting["rejections_by_innovation_gate_on_dominant_tracks"]
+            + accounting["rejections_by_plausibility_gate_on_dominant_tracks"]
+        )
+        assert accounting["plausibility_gate_can_reject_measurements"] is False
+        assert accounting["rejections_by_image_space_plausibility_gate"] == 0
+        assert sum(accounting["unpositioned_by_reason"].values()) == accounting["unpositioned_samples"]
+        assert accounting["dead_reckoned_samples_after_false_rejection"] >= 0
+    assert benchmark["splits"]["train"]["rejection_accounting"]["clean_samples_rejected"] > 0
+    assert benchmark["splits"]["train"]["rejection_accounting"]["dead_reckoned_samples_after_false_rejection"] > 0
+
+
+def test_uncertainty_diagnostics_are_serialisable_and_labelled_uncalibrated(benchmark) -> None:
+    assert benchmark["uncertainty_status"] == "not_statistically_calibrated"
+    assert "not" in benchmark["uncertainty_status"]
+    assert "calibrated" in benchmark["uncertainty_note"]
+    for split in ("train", "val", "test"):
+        diagnostics = benchmark["splits"][split]["uncertainty_diagnostics"]
+        assert diagnostics["status"] == "not_statistically_calibrated"
+        assert diagnostics["coverage_evaluated_samples"] > 0
+        for key in (
+            "coverage_68_pct_smoothed_covariance",
+            "coverage_95_pct_smoothed_covariance",
+            "coverage_68_pct_raw_measurement_covariance",
+            "median_mahalanobis_distance_smoothed",
+            "covariance_scale_needed_k2_smoothed",
+            "observed_jitter_std_u_px",
+            "assumed_footpoint_sigma_u_px",
+        ):
+            assert diagnostics[key] is not None, (split, key)
+        assert 0.0 <= diagnostics["coverage_68_pct_smoothed_covariance"] <= 100.0
+        assert (
+            diagnostics["coverage_68_pct_smoothed_covariance"]
+            <= diagnostics["coverage_95_pct_smoothed_covariance"]
+        )
+        assert diagnostics["covariance_scale_needed_k2_smoothed"] > 0.0
+        assert set(diagnostics["coverage_68_pct_by_geometry_state"]) <= {
+            "calibrated",
+            "propagated",
+        }
+        assert "unknown" not in diagnostics["coverage_68_pct_by_geometry_state"]
+        assert "unknown" not in diagnostics["coverage_samples_by_geometry_state"]
+        assert set(diagnostics["coverage_68_pct_by_covariance_inflation"]) == {
+            "inflated",
+            "not_inflated",
+        }
+        assert sum(diagnostics["coverage_samples_by_covariance_inflation"].values()) == (
+            diagnostics["coverage_evaluated_samples"]
+        )
+        # Round-trips through JSON without loss or non-finite values.
+        assert json.loads(json.dumps(diagnostics)) == diagnostics
+    analysis = benchmark["uncertainty_calibration_analysis"]
+    assert analysis["fit_split"] == "train+val"
+    assert analysis["test_split_used_for_fitting"] is False
+    assert analysis["applied_to_shipped_covariance"] is False
+    assert analysis["shipped_covariance_unchanged"] is True
+
+
+def test_warmup_ablation_is_train_val_only(benchmark) -> None:
+    ablation = benchmark["gate_warmup_ablation"]
+    assert ablation["test_split_consulted"] is False
+    assert sorted(ablation["results"]) == ["train", "val"]
+    for split in ("train", "val"):
+        result = ablation["results"][split]
+        assert result["shipped_warmup_false_rejections"] == (
+            benchmark["splits"][split]["rejection_accounting"]["clean_samples_rejected"]
+        )
+        assert result["gate_from_2nd_update_evaluated"] == result["shipped_warmup_evaluated"]
+    assert (
+        ablation["results"]["train"]["gate_from_2nd_update_false_rejections"]
+        >= ablation["results"]["train"]["shipped_warmup_false_rejections"]
+    )
+
+
+def test_benchmark_labels_synthetic_versus_real_and_experimental_outputs(benchmark) -> None:
+    assert benchmark["benchmark_kind"] == "synthetic_trajectory_benchmark"
+    assert benchmark["real_multiframe_trajectory_accuracy"] == "not_measured"
+    assert "not yet measured" in benchmark["real_multiframe_trajectory_accuracy_note"]
+    assert benchmark["acceleration_status"] == "experimental_not_validated"
+    assert "EXPERIMENTAL" in benchmark["acceleration_note"].upper()
+    assert benchmark["image_detector_accuracy_status"] == "unmeasured"
+    assert benchmark["image_detector_quantitative_metrics"] is None
+    separation = benchmark["detector_metric_separation_note"]
+    assert "FIXTURE HARNESS" in separation
+    assert "must never" in separation
+    assert "unmeasured" in separation
+    fine_scope = benchmark["metric_scopes"]["model_observable_no_ground_truth"]
+    coarse_scope = benchmark["metric_scopes"]["harness_gt_dependent"]
+    assert "n_tracks" in fine_scope and "field_pos_err_median_yd" not in fine_scope
+    assert "field_pos_err_median_yd" in coarse_scope
+    assert "id_switches" in coarse_scope
+    label_scope = benchmark["metric_scopes"]["harness_label_dependent"]
+    assert "false_rejections" in label_scope and "outliers_injected" in label_scope
+    assert "image_space_ema_field_err_median_yd" in coarse_scope
+    assert benchmark["real_frame_smoke_test"]["evaluation_scope"] == (
+        "single_frame_integration_smoke_test_no_ground_truth_trajectory"
+    )
+    assert benchmark["real_frame_smoke_test"]["quantitative_ground_truth_available"] is False
+
+
+def test_phase3_fixture_metrics_are_not_presented_as_detector_accuracy() -> None:
+    """Phase 3 fixture numbers are harness pass-through statistics, not detector accuracy."""
+    phase3_json = ROOT / "outputs" / "phase3_tracking_benchmark.json"
+    assert phase3_json.exists()
+    report = json.loads(phase3_json.read_text(encoding="utf-8"))
+    provenance = report["benchmark_integrity_audit"]["detector_provenance"]
+    assert "NOT an image detector benchmark" in provenance["controlled_sequences_train_val_test"]
+    assert "unmeasured" in provenance["real_nfl_frames_val_test"]
+    for sequence in report["sequences"]:
+        assert sequence["detector_implementation"] == "fixture_detector_v1"
+
+
+# ---------------------------------------------------------------------------
+# 8. Audit-remediation regressions added by this pass (integrity of the harness)
+# ---------------------------------------------------------------------------
+def test_dominant_track_rule_has_no_ground_truth_term(evaluator) -> None:
+    """Structural guard: the rule's *code* names no ground-truth or error quantity."""
+    import ast
+    import inspect
+    import re
+
+    tree = ast.parse(inspect.getsource(evaluator.select_dominant_track))
+    docstring = ast.get_docstring(tree.body[0], clean=False)
+    identifiers = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            identifiers.add(node.id.lower())
+        elif isinstance(node, ast.Attribute):
+            identifiers.add(node.attr.lower())
+        elif isinstance(node, ast.arg):
+            identifiers.add(node.arg.lower())
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str) and node.value != docstring:
+            identifiers.add(node.value.lower())
+    for forbidden in ("gt", "gt_id", "ground_truth", "gt_table", "error", "err", "oracle"):
+        pattern = rf"(?:^|_){re.escape(forbidden)}(?:_|$)"
+        hits = sorted(name for name in identifiers if re.search(pattern, name))
+        assert hits == [], (forbidden, hits)
+
+
+def test_benchmark_determinism_is_verified_on_every_split(benchmark) -> None:
+    determinism = benchmark["determinism_check"]
+    assert determinism["deterministic"] is True
+    assert determinism["differing_keys"] == []
+    assert {entry["split"] for entry in determinism["per_sequence"]} == {"train", "val", "test"}
+    assert all(entry["deterministic"] for entry in determinism["per_sequence"])
+
+
+def test_production_code_carries_no_ground_truth_identifier() -> None:
+    """Ground truth lives in the harness only; the package must never read a GT label."""
+    offenders = []
+    for path in sorted((ROOT / "football_vision").rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        for token in ("gt_id", "ground_truth", "gt_table"):
+            if token in source:
+                offenders.append((str(path.relative_to(ROOT)), token))
+    assert offenders == [], offenders
+
+
+def test_invalid_trajectory_states_are_rejected() -> None:
+    """A refused geometry must never silently become a fabricated field position."""
+    from football_vision.schema import TrajectorySample
+
+    with pytest.raises(ValueError):
+        TrajectorySample(
+            track_id=1,
+            frame_id=0,
+            timestamp_s=0.0,
+            geometry_state="unknown",
+            x_coord_mode="relative_10yd",
+            field_position=(10.0, 20.0),
+        )
+    # ... and a claimed source with no position at all is refusable too.
+    with pytest.raises(ValueError):
+        TrajectorySample(
+            track_id=1,
+            frame_id=0,
+            timestamp_s=0.0,
+            geometry_state="calibrated",
+            x_coord_mode="relative_10yd",
+            field_position=None,
+            predicted_position=None,
+            position_source="measured_smoothed",
+        )
+    with pytest.raises(ValueError):
+        TrajectorySample(
+            track_id=1,
+            frame_id=0,
+            timestamp_s=0.0,
+            geometry_state="calibrated",
+            x_coord_mode="relative_5yd",
+            absolute_yardline=30.0,
+        )
+
+
+def test_real_frame_assets_resolve_or_skip_cleanly() -> None:
+    """The real-frame smoke path must resolve via the data-path API or skip with a reason."""
+    from football_vision.data_paths import (
+        NFL_FRAMES_ENV,
+        missing_nfl_frames,
+        real_frames_skip_reason,
+        require_nfl_frame,
+        resolve_nfl_frame,
+    )
+
+    assert resolve_nfl_frame("definitely-not-a-real-frame.jpg") is None
+    with pytest.raises(FileNotFoundError) as excinfo:
+        require_nfl_frame("definitely-not-a-real-frame.jpg")
+    assert NFL_FRAMES_ENV in str(excinfo.value)
+
+    payload = json.loads(BENCHMARK_JSON.read_text(encoding="utf-8"))
+    smoke = payload["real_frame_smoke_test"]
+    if smoke["skipped"]:
+        assert smoke["skip_reason"], "a skipped smoke test must explain itself"
+    else:
+        assert Path(smoke["frame_path"]).is_file()
+    if missing_nfl_frames():
+        assert NFL_FRAMES_ENV in real_frames_skip_reason()
+    else:
+        assert real_frames_skip_reason().startswith("real NFL frame assets")

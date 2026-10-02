@@ -1,5 +1,14 @@
-# Generated benchmark / visualization artifacts
-outputs/
+# Generated benchmark / visualization artifacts.
+# The benchmark JSON/PNG files that tests and reports depend on are tracked
+# explicitly below, so they no longer need `git add -f`. Regenerated Phase-1/2
+# diagnostic artifacts that are not part of any report stay untracked.
+outputs/*
+!outputs/phase2_calibration_benchmark.json
+!outputs/phase2_temporal_confidence.png
+!outputs/phase3_tracking_benchmark.json
+!outputs/phase3_tracking_overview.png
+!outputs/phase4_trajectory_benchmark.json
+!outputs/phase4_trajectory_overview.png
 
 # Model weights & TensorRT engines
 *.pt

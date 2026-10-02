@@ -4,7 +4,7 @@ Modular computer-vision pipeline for American football broadcast and All-22 vide
 
 ---
 
-## Current Status (Phases 0-4 implemented; Phase 4 under review)
+## Current Status (Phases 0-4 implemented; Phase 4 audit remediation committed, awaiting review)
 
 - **Validated Core (`football_vision/calibration/`):**
   - 1-px morphological white-paint ridge extraction + HSV saturation gating (`S < 65`) inside turf mask
@@ -18,7 +18,17 @@ Modular computer-vision pipeline for American football broadcast and All-22 vide
   - Evaluated on 26 held-out ground-truth sideline and yard-number landmarks across 3 real NFL frames (`0.275 yd`, `0.350 yd`, `0.057 yd` median held-out error).
 - **Phase 2 (`benchmarks/evaluate_phase2_robustness.py`):** calibration robustness + temporal stress benchmark; `34` temporal refusals across 8 sequences (`0 + 0 + 1 + 10 + 6 + 7 + 3 + 7`), `0` fabricated calibrations.
 - **Phase 3 (`benchmarks/evaluate_phase3_tracking.py`):** player detection / footpoint reliability / torso-cluster team assignment / multi-object tracking / gated field projection. Box fixtures come from `FixturePlayerDetector`; image-space detector accuracy is **unmeasured**. `0` fabricated projections.
-- **Phase 4 (`benchmarks/evaluate_phase4_trajectories.py`):** field-space trajectories with persistent track state, camera-motion-safe field-space smoothing, velocity/acceleration, chi-square jump rejection, uncertainty propagation, and explicit `calibrated` / `propagated` / `unknown` geometry states. Player motion is synthetic fixture ground truth; `0` fabricated field positions and `0` absolute-yardline violations.
+- **Phase 4 (`benchmarks/evaluate_phase4_trajectories.py`):** field-space trajectories with persistent track state, camera-motion-safe field-space smoothing, velocity/acceleration, chi-square jump rejection, uncertainty propagation, and explicit `calibrated` / `propagated` / `unknown` geometry states. Player motion is **synthetic fixture ground truth** (`benchmark_kind = synthetic_trajectory_benchmark`); `0` fabricated field positions and `0` absolute-yardline violations. Real multi-frame trajectory accuracy is **not measured**. Uncertainty is **not statistically calibrated** (empirical coverage is reported per split, per geometry state and before/after smoothing). Acceleration is **experimental / not validated**. Image-based detector accuracy is **unmeasured** (`image_detector_quantitative_metrics = null`) — fixture pass-through counts are never detector accuracy. `TEST` is a frozen held-out split; nothing was tuned on it. See `docs/PHASE4_TRAJECTORY_REPORT.md` (generated from the benchmark JSON) and `docs/ASSUMPTIONS_AND_LIMITATIONS.md`.
+
+### How to read a number in this repository
+
+| Label | Meaning |
+| :--- | :--- |
+| *measured* | Produced by a benchmark on a frozen split of data with ground truth (e.g. Phase 0/1 held-out landmark error, Phase 2 temporal refusals, Phase 3 tracking metrics). |
+| *synthetic benchmark* | Scored against synthetic deterministic ground truth (Phase 4 trajectories use synthetic routes projected through real per-frame homographies). |
+| *smoke test* | Single-frame integration check on a real frame with **no** ground truth; it can only show "it ran / it refused". |
+| *unmeasured* | No number exists; the pipeline has not been evaluated on that quantity (image detector accuracy, real multi-frame trajectory accuracy). |
+| *experimental* | Implemented and unit-tested for mathematical correctness only (acceleration). |
 
 ---
 
@@ -88,3 +98,17 @@ python3 benchmarks/evaluate_phase4_trajectories.py    # Phase 4 trajectories
 
 Reports: `docs/WEEK1_HOUGH_CALIBRATION_REPORT.md`, `docs/PHASE2_CALIBRATION_ROBUSTNESS_REPORT.md`,
 `docs/PHASE3_PERCEPTION_TRACKING_REPORT.md`, `docs/PHASE4_TRAJECTORY_REPORT.md`.
+
+`docs/PHASE4_TRAJECTORY_REPORT.md` is generated from `outputs/phase4_trajectory_benchmark.json`:
+
+```bash
+python3 benchmarks/evaluate_phase4_trajectories.py                  # writes the JSON + overview PNG
+python3 benchmarks/render_phase4_report.py                          # renders the Markdown report
+```
+
+Real NFL stills are third-party assets and are **not vendored**. Tests and the single-frame smoke section
+resolve them through `football_vision/data_paths.py`; set `FOOTBALL_VISION_NFL_FRAMES` to a directory
+containing them to run the asset-dependent checks, otherwise they skip with an explicit reason.
+
+CI (`.github/workflows/ci.yml`) runs `ruff check .` (E9 + pyflakes rules) and `pytest -v` on CPU-only
+runners with no third-party assets and no model downloads.

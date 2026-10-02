@@ -9,7 +9,12 @@ import json
 from pathlib import Path
 import cv2
 import numpy as np
+import pytest
 
+from football_vision.data_paths import (  # noqa: E402
+    real_frames_skip_reason,
+    resolve_nfl_frame,
+)
 from football_vision import (
     CalibrationResult,
     FieldProjector,
@@ -23,6 +28,16 @@ from football_vision import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _real_frame(name: str) -> np.ndarray:
+    """Load a real NFL still, or skip the test when the unvendored asset is absent."""
+    path = resolve_nfl_frame(name)
+    if path is None:
+        pytest.skip(real_frames_skip_reason())
+    img = cv2.imread(str(path))
+    assert img is not None, path
+    return img
 PHASE3_BENCHMARK_JSON = ROOT / "outputs" / "phase3_tracking_benchmark.json"
 
 
@@ -50,7 +65,7 @@ def test_detection_schema_and_independence_from_calibration():
                         assert "experiments" not in alias.name
 
     # 2. Verify detector runs purely in image space and returns canonical schema
-    img = cv2.imread("/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
+    img = _real_frame("nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
     detector = TurfContrastPlayerDetector()
     dets = detector.detect(img, frame_id=7)
     assert len(dets) >= 10
@@ -204,7 +219,7 @@ def test_track_creation_and_persistence():
 
 
 def test_short_occlusion_recovery_and_prolonged_expiry():
-    img = cv2.imread("/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
+    img = _real_frame("nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
     cal = calibrate_frame(img, x_start_yd=15.0)
 
     # Track 1: observed t=0,1 -> occluded t=2,3 (2 frames <= max_missed=3) -> recovered at t=4
@@ -249,7 +264,7 @@ def test_short_occlusion_recovery_and_prolonged_expiry():
 
 
 def test_calibration_and_player_projection_integration_respects_x_coord_mode():
-    img = cv2.imread("/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
+    img = _real_frame("nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
     cal = calibrate_frame(img, x_start_yd=15.0)
     assert cal.success is True
     assert cal.x_coord_mode == "relative_10yd"
@@ -284,7 +299,7 @@ def test_calibration_and_player_projection_integration_respects_x_coord_mode():
 
 
 def test_projection_refusal_on_invalid_calibration_or_unreliable_footpoint():
-    img = cv2.imread("/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
+    img = _real_frame("nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
     cal_valid = calibrate_frame(img, x_start_yd=15.0)
     projector = FieldProjector()
 

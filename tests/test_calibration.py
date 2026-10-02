@@ -13,6 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from football_vision.data_paths import (  # noqa: E402
+    real_frames_skip_reason,
+    resolve_nfl_frame,
+)
 from football_vision import (
     FIELD_WIDTH_YD,
     Y_NEAR_HASH_YD,
@@ -20,7 +24,6 @@ from football_vision import (
     CalibrationResult,
     extract_white_paint_ridge,
     calibrate_frame,
-    compute_calibration_confidence,
     resolve_x_coord_mode_and_parity,
     image_to_field,
     field_to_image,
@@ -63,6 +66,23 @@ def _make_synthetic_field_without_numbers(width: int = 900, height: int = 506) -
             for y_row in (195, 275):
                 x_tick = int(round(mt * y_row + bt))
                 cv2.line(img, (x_tick, y_row - 4), (x_tick, y_row + 4), (235, 235, 235), 3)
+    return img
+
+
+# Real NFL broadcast stills are third-party assets and are NOT vendored. They are resolved
+# through ``football_vision.data_paths`` (honours FOOTBALL_VISION_NFL_FRAMES); tests that need
+# them skip with an explicit reason instead of failing on a machine without the assets.
+def _real_frame_path(name: str) -> str:
+    path = resolve_nfl_frame(name)
+    if path is None:
+        raise unittest.SkipTest(real_frames_skip_reason())
+    return str(path)
+
+
+def _real_frame(name: str) -> np.ndarray:
+    path = _real_frame_path(name)
+    img = cv2.imread(path)
+    assert img is not None, path
     return img
 
 
@@ -147,7 +167,7 @@ class TestCalibrationBaseline(unittest.TestCase):
         self.assertEqual(len(cal_no_hash.yard_lines), 4)
 
         # 5. Insufficient confidence threshold -> insufficient_confidence
-        img1 = cv2.imread("/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
+        img1 = _real_frame("nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
         cal_strict = calibrate_frame(img1, x_start_yd=15.0, min_confidence=0.99)
         self.assertFalse(cal_strict.success)
         self.assertEqual(cal_strict.failure_reason, "insufficient_confidence")
@@ -216,7 +236,7 @@ class TestCalibrationBaseline(unittest.TestCase):
         """Test CalibrationTracker.update_from_result across direct observation, optical-flow bridged
         pan, confidence decay expiration, and camera-cut reset.
         """
-        img1 = cv2.imread("/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
+        img1 = _real_frame("nfl-game-broadcast-screenshot-1st-and-10-5.jpg")
         cal1 = calibrate_frame(img1, x_start_yd=15.0)
         self.assertTrue(cal1.success)
 
@@ -276,7 +296,7 @@ class TestCalibrationBaseline(unittest.TestCase):
         cases = [
             (
                 "Frame 1 (SEA vs SF — FOX Broadcast)",
-                "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-5.jpg",
+                _real_frame_path("nfl-game-broadcast-screenshot-1st-and-10-5.jpg"),
                 15.0,
                 (10.0, 40.0),
                 5,
@@ -288,7 +308,7 @@ class TestCalibrationBaseline(unittest.TestCase):
             ),
             (
                 "Frame 2 (NYJ vs JAX — Midfield Logo, No Full Sideline)",
-                "/home/user/image-search/nfl-game-broadcast-screenshot-1st-and-10-4.jpg",
+                _real_frame_path("nfl-game-broadcast-screenshot-1st-and-10-4.jpg"),
                 50.0,
                 (45.0, 80.0),
                 6,
@@ -300,7 +320,7 @@ class TestCalibrationBaseline(unittest.TestCase):
             ),
             (
                 "Frame 3 (NO vs CAR — All-22 Oblique + Telestrator)",
-                "/home/user/image-search/nfl-all-22-film-pre-snap-formation-offen-5.png",
+                _real_frame_path("nfl-all-22-film-pre-snap-formation-offen-5.png"),
                 80.0,
                 (75.0, 105.0),
                 5,

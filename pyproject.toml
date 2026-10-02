@@ -21,6 +21,7 @@ experimental = [
 dev = [
     "pytest>=7.0",
     "matplotlib>=3.7",
+    "ruff>=0.6",
 ]
 
 [tool.setuptools.packages.find]
@@ -28,3 +29,19 @@ include = ["football_vision*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+# Static analysis actually enforced in CI. The rule set is deliberately narrow and
+# *verifiable*: syntax errors (E9) and pyflakes-level defects (F) — undefined names,
+# unused imports/variables, shadowed definitions. No style rules are gated, because
+# this project has no agreed style config and a green CI must mean something.
+target-version = "py310"
+line-length = 110
+exclude = [".git", "__pycache__", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E9", "F"]
+
+[tool.ruff.lint.per-file-ignores]
+# The package __init__ is the public API surface: it re-exports names on purpose.
+"football_vision/__init__.py" = ["F401"]

@@ -492,6 +492,18 @@ class TrajectorySample:
     projected with a valid geometry state (``calibrated`` / ``propagated``).
     ``predicted_position`` is an explicitly labelled dead-reckoning estimate that
     is NEVER a claim of true position (see ``position_source``).
+
+    ``accel_yd_s2`` is **experimental and not validated**: it is the finite
+    difference of the smoothed velocity, bounded by a plausibility clip. It is
+    reported for engineering continuity only and must not be presented as a
+    measured/validated acceleration estimate.
+
+    ``__post_init__`` rejects the invalid states that a refusal-first design must
+    never allow to exist:
+      * a field position while the geometry state is ``unknown``,
+      * a field position with ``position_source == "none"``,
+      * a dead-reckoning prediction that is not labelled as such,
+      * an ``absolute_yardline`` while ``x_coord_mode != "absolute"``.
     """
 
     track_id: int
@@ -515,11 +527,14 @@ class TrajectorySample:
     sigma_major_yd: float = 0.0
     sigma_minor_yd: float = 0.0
     covariance_xy: Optional[Tuple[float, float, float]] = None  # (sxx, sxy, syy)
+    measurement_covariance_xy: Optional[Tuple[float, float, float]] = None  # (sxx, sxy, syy)
     uncertainty_inflated: bool = False
     is_outlier_rejected: bool = False
     rejection_reason: Optional[str] = None
     is_measurement_used: bool = False
     image_space_jump_flagged: bool = False
+    gate_statistic: Optional[float] = None
+    gate_threshold: Optional[float] = None
     missed_frames: int = 0
     filter_age_frames: int = 0
     frames_since_measurement: int = 0
@@ -528,6 +543,36 @@ class TrajectorySample:
     projection_status: str = "unprojected"
     absolute_yardline: Optional[float] = None
     provenance: Dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.field_position is not None:
+            if self.geometry_state == "unknown":
+                raise ValueError(
+                    "invalid trajectory sample: field_position set while geometry_state == 'unknown'"
+                )
+            if self.position_source == "none":
+                raise ValueError(
+                    "invalid trajectory sample: field_position set while position_source == 'none'"
+                )
+        if (
+            self.position_source != "none"
+            and self.field_position is None
+            and self.predicted_position is None
+        ):
+            raise ValueError(
+                "invalid trajectory sample: position_source claims a position but neither "
+                "field_position nor predicted_position is set"
+            )
+        if self.predicted_position is not None and self.position_source != "predicted_dead_reckoning":
+            raise ValueError(
+                "invalid trajectory sample: predicted_position set without "
+                "position_source == 'predicted_dead_reckoning'"
+            )
+        if self.absolute_yardline is not None and self.x_coord_mode != "absolute":
+            raise ValueError(
+                "invalid trajectory sample: absolute_yardline set while "
+                f"x_coord_mode == {self.x_coord_mode!r}"
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         out = asdict(self)
@@ -542,6 +587,11 @@ class TrajectorySample:
         out["velocity_yd_s"] = [float(self.velocity_yd_s[0]), float(self.velocity_yd_s[1])]
         out["covariance_xy"] = (
             [float(v) for v in self.covariance_xy] if self.covariance_xy is not None else None
+        )
+        out["measurement_covariance_xy"] = (
+            [float(v) for v in self.measurement_covariance_xy]
+            if self.measurement_covariance_xy is not None
+            else None
         )
         return out
 
