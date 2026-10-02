@@ -88,6 +88,12 @@ Football-Vision/
 ## Running Tests & Reproducing the Week-1 Benchmark
 
 ```bash
+# Install the package and all CPU test dependencies in a clean environment.
+python3 -m venv .venv
+source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+python -m pip check
+
 # Run the full unit & integration test suite (Phases 0-4)
 python3 -m pytest -v
 

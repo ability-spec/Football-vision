@@ -22,7 +22,8 @@ def detect_yard_lines_and_vp(
         return None, None, 0, np.nan, np.nan, "No Hough lines above threshold"
 
     kept = []
-    for rho, theta, votes in lines[:, 0]:
+    # OpenCV 4 returns (N, 1, 3); OpenCV 5 returns (N, 3).
+    for rho, theta, votes in np.asarray(lines).reshape(-1, 3):
         if abs(np.cos(theta)) < 0.55:
             continue
         m = -np.sin(theta) / np.cos(theta)
