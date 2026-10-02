@@ -55,8 +55,8 @@ class _InternalTrackState:
     short_occlusion_recovered: bool = False
     detector_metadata: Dict[str, Any] = field(default_factory=dict)
 
-    def predict_next_bbox_and_footpoint(self) -> Tuple[Tuple[float, float, float, float], Tuple[float, float]]:
-        damp = float(0.85 ** self.missed_frames)
+    def predict_next_bbox_and_footpoint(self, dt_frames: int = 1) -> Tuple[Tuple[float, float, float, float], Tuple[float, float]]:
+        damp = float(0.85 ** self.missed_frames) * (1.0 - 0.85 ** dt_frames) / (1.0 - 0.85)
         vx = self.velocity_uv[0] * damp
         vy = self.velocity_uv[1] * damp
         x1, y1, x2, y2 = self.bbox
@@ -114,12 +114,14 @@ class PlayerTracker:
         self.velocity_smoothing = float(velocity_smoothing)
         self.projector = projector if projector is not None else FieldProjector()
 
+        self._last_frame_id: Optional[int] = None
         self._next_track_id: int = 1
         self._tracks: List[_InternalTrackState] = []
         self.total_occlusion_recoveries: int = 0
 
     def reset(self) -> None:
         """Reset all active tracks and counters."""
+        self._last_frame_id = None
         self._next_track_id = 1
         self._tracks.clear()
         self.total_occlusion_recoveries = 0
@@ -134,6 +136,12 @@ class PlayerTracker:
         include_coasting_tracks: bool = True,
     ) -> List[PlayerTrack]:
         """Associate ``detections`` with active tracks and project reliable footpoints."""
+        if self._last_frame_id is not None and frame_id <= self._last_frame_id:
+            raise ValueError("frame_id must increase strictly")
+        self._last_frame_id = int(frame_id)
+        # Expire identities before association when the unobserved interval is too long.
+        self._tracks = [t for t in self._tracks
+                        if t.missed_frames + frame_id - t.frame_id - 1 <= self.max_missed_frames]
         n_trks = len(self._tracks)
         n_dets = len(detections)
         teams_list: List[Optional[TeamAssignment]] = (
@@ -141,7 +149,7 @@ class PlayerTracker:
         )
 
         # 1. Predict all active tracks forward to current frame
-        predicted = [t.predict_next_bbox_and_footpoint() for t in self._tracks]
+        predicted = [t.predict_next_bbox_and_footpoint(int(frame_id) - t.frame_id) for t in self._tracks]
 
         matched_trk_indices: Dict[int, int] = {}
         matched_det_indices: set[int] = set()
@@ -207,7 +215,7 @@ class PlayerTracker:
                 trk.footpoint = det.footpoint
                 trk.footpoint_estimate = det.footpoint_estimate
                 trk.velocity_uv = (round(float(new_vel[0]), 4), round(float(new_vel[1]), 4))
-                trk.age += 1
+                trk.age += dt
                 trk.missed_frames = 0
                 trk.hits += 1
                 trk.detection_confidence = float(det.confidence)
@@ -217,8 +225,9 @@ class PlayerTracker:
                 updated_internal.append(trk)
             else:
                 # Unmatched track: coast if within max_missed_frames
-                trk.missed_frames += 1
-                trk.age += 1
+                dt = int(frame_id) - trk.frame_id
+                trk.missed_frames += dt
+                trk.age += dt
                 trk.frame_id = int(frame_id)
                 trk.short_occlusion_recovered = False
                 if trk.missed_frames <= self.max_missed_frames:
@@ -298,3 +307,4 @@ class PlayerTracker:
 
         self.projector.update_tracks_with_projection(output_tracks, calibration)
         return output_tracks
+
