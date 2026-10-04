@@ -6,14 +6,19 @@ Modular computer-vision pipeline for American football broadcast and All-22 vide
 
 ## Current Status: research prototype
 
+**0.5.0:** Phase 10 play segmentation (manual timestamps + collective-motion onset/cessation)
+is implemented, benchmarked on frozen synthetic splits and documented in
+[the Phase 10 report](docs/PHASE10_PLAY_SEGMENTATION_REPORT.md).
+
 **0.4.1 remediation:** clean-install/CI fixes, coordinate-boundary and trajectory corrections,
 and an offline video evaluation workflow are implemented. See
 [the finding-by-finding remediation](docs/OCTOBER_REMEDIATION.md) and
 [the real-video protocol](docs/REAL_VIDEO_EVALUATION.md).
 
 **The benchmark numbers below are frozen historical results, not measurements of 0.4.1.**
-Real multi-frame detection/tracking accuracy remains unmeasured. Analytics and visualization
-modules are placeholders; the repository is not a finished broadcast-analysis product.
+Real multi-frame detection/tracking accuracy remains unmeasured. Analytics covers Phase 10 play
+segmentation only (Phases 11-14 pending) and visualization is still a placeholder; the repository
+is not a finished broadcast-analysis product.
 
 
 - **Validated Core (`football_vision/calibration/`):**
@@ -29,13 +34,26 @@ modules are placeholders; the repository is not a finished broadcast-analysis pr
 - **Phase 2 (`benchmarks/evaluate_phase2_robustness.py`):** calibration robustness + temporal stress benchmark; `34` temporal refusals across 8 sequences (`0 + 0 + 1 + 10 + 6 + 7 + 3 + 7`), `0` fabricated calibrations.
 - **Phase 3 (`benchmarks/evaluate_phase3_tracking.py`):** player detection / footpoint reliability / torso-cluster team assignment / multi-object tracking / gated field projection. Box fixtures come from `FixturePlayerDetector`; image-space detector accuracy is **unmeasured**. `0` fabricated projections.
 - **Phase 4 (`benchmarks/evaluate_phase4_trajectories.py`):** field-space trajectories with persistent track state, field-space smoothing within coordinate segments, velocity/acceleration, chi-square jump rejection, uncertainty propagation, and explicit `calibrated` / `propagated` / `unknown` geometry states. Player motion is **synthetic fixture ground truth** (`benchmark_kind = synthetic_trajectory_benchmark`); `0` fabricated field positions and `0` absolute-yardline violations. Real multi-frame trajectory accuracy is **not measured**. Uncertainty is **not statistically calibrated** (empirical coverage is reported per split, per geometry state and before/after smoothing). Acceleration is **experimental / not validated**. Image-based detector accuracy is **unmeasured** (`image_detector_quantitative_metrics = null`) — fixture pass-through counts are never detector accuracy. `TEST` is a frozen held-out split; nothing was tuned on it. See `docs/PHASE4_TRAJECTORY_REPORT.md` (generated from the benchmark JSON) and `docs/ASSUMPTIONS_AND_LIMITATIONS.md`.
+- **Phase 10 (`benchmarks/evaluate_phase10_segmentation.py`):** play segmentation
+  (PLAY START -> PRE-SNAP -> SNAP -> PLAY -> PLAY END). Manual play timestamps are the primary
+  contract; a missing snap is estimated as the first sustained collective-motion onset after a
+  fully defined quiescent baseline, and a missing play end (opt-in) as the first sustained
+  collective quiet run. On the frozen synthetic splits: `5` snaps resolved / `6` refused
+  (`4` false refusals on declared low-visibility strata, `2` true refusals), snap error `0`
+  frames on rectangular onsets and `2` frames on a staggered onset (frozen bound `4`),
+  `0` fabricated boundaries and `0` expectation violations. Player motion is synthetic fixture
+  ground truth (`benchmark_kind = synthetic_segmentation_benchmark`); no image, detector or
+  homography is involved and end-to-end video play segmentation is **unmeasured** (a play START
+  is always a manual timestamp, so the unattended video runner does not call Phase 10).
+  See `docs/PHASE10_PLAY_SEGMENTATION_REPORT.md`.
+
 
 ### How to read a number in this repository
 
 | Label | Meaning |
 | :--- | :--- |
 | *measured* | Produced by a benchmark on a frozen split of data with ground truth (e.g. Phase 0/1 held-out landmark error, Phase 2 temporal refusals, Phase 3 tracking metrics). |
-| *synthetic benchmark* | Scored against synthetic deterministic ground truth (Phase 4 trajectories use synthetic routes projected through real per-frame homographies). |
+| *synthetic benchmark* | Scored against synthetic deterministic ground truth (Phase 4 trajectories use synthetic routes projected through real per-frame homographies; Phase 10 segmentation uses synthetic field-space speed profiles with fixture boundaries). |
 | *smoke test* | Single-frame integration check on a real frame with **no** ground truth; it can only show "it ran / it refused". |
 | *unmeasured* | No number exists; the pipeline has not been evaluated on that quantity (image detector accuracy, real multi-frame trajectory accuracy). |
 | *experimental* | Implemented and unit-tested for mathematical correctness only (acceleration). |
@@ -56,7 +74,7 @@ Football-Vision/
 │   └── WEEK1_HOUGH_CALIBRATION_REPORT.md
 ├── football_vision/
 │   ├── field_spec.py
-│   ├── schema.py
+│   ├── schema.py            # Phase 16A contracts + Phase 3/4/10 records
 │   ├── calibration/
 │   │   ├── white_ridge.py
 │   │   ├── yard_lines.py
@@ -69,7 +87,8 @@ Football-Vision/
 │   ├── identity/         # Phase 3 torso appearance cluster assignment
 │   ├── projection/       # Phase 3 gated field projection
 │   ├── trajectory/       # Phase 4 field-space trajectories, kinematics, uncertainty
-│   ├── analytics/
+│   ├── analytics/        # Phase 10 play segmentation (11-14 not implemented)
+│   │   └── segmentation.py
 │   └── visualization/
 ├── experimental/
 │   └── cpu_blob_detector.py
@@ -77,19 +96,23 @@ Football-Vision/
 │   ├── evaluate_hough_week1.py
 │   ├── evaluate_phase2_robustness.py
 │   ├── evaluate_phase3_tracking.py
-│   └── evaluate_phase4_trajectories.py
+│   ├── evaluate_phase4_trajectories.py
+│   ├── evaluate_phase10_segmentation.py
+│   └── render_phase10_report.py
 ├── data/
 │   └── benchmarks/
 │       ├── week1_held_out_landmarks.json
 │       ├── phase2_calibration_manifest.json
 │       ├── phase3_tracking_manifest.json
-│       └── phase4_trajectory_manifest.json
+│       ├── phase4_trajectory_manifest.json
+│       └── phase10_segmentation_manifest.json
 ├── tests/
 │   ├── test_field_spec_and_schema.py
 │   ├── test_calibration.py
 │   ├── test_phase2_benchmark.py
 │   ├── test_phase3_perception_tracking.py
-│   └── test_phase4_trajectories.py
+│   ├── test_phase4_trajectories.py
+│   └── test_phase10_play_segmentation.py
 └── outputs/
 ```
 
@@ -112,12 +135,14 @@ python3 benchmarks/evaluate_hough_week1.py            # Phase 0/1 calibration
 python3 benchmarks/evaluate_phase2_robustness.py      # Phase 2 robustness + temporal
 python3 benchmarks/evaluate_phase3_tracking.py        # Phase 3 perception/tracking
 python3 benchmarks/evaluate_phase4_trajectories.py    # Phase 4 trajectories
+python3 benchmarks/evaluate_phase10_segmentation.py   # Phase 10 play segmentation
 ```
 
 Reports: `docs/WEEK1_HOUGH_CALIBRATION_REPORT.md`, `docs/PHASE2_CALIBRATION_ROBUSTNESS_REPORT.md`,
 `docs/PHASE3_PERCEPTION_TRACKING_REPORT.md`, `docs/PHASE4_TRAJECTORY_REPORT.md`,
 `docs/phase4_quantitative_audit.md` (Phase 4 quantitative audit: all-track vs dominant-track, fragmentation,
-rejection-gate, dead-reckoning, uncertainty, TEST integrity, reproducibility).
+rejection-gate, dead-reckoning, uncertainty, TEST integrity, reproducibility),
+`docs/PHASE10_PLAY_SEGMENTATION_REPORT.md` (generated from the Phase 10 benchmark JSON).
 
 `docs/PHASE4_TRAJECTORY_REPORT.md` is generated from `outputs/phase4_trajectory_benchmark.json`:
 
@@ -125,6 +150,7 @@ rejection-gate, dead-reckoning, uncertainty, TEST integrity, reproducibility).
 python3 benchmarks/evaluate_phase4_trajectories.py                  # writes the JSON + overview PNG
 python3 benchmarks/render_phase4_report.py                          # renders the Markdown report
 python3 benchmarks/render_phase4_audit.py                           # renders the quantitative-audit doc
+python3 benchmarks/render_phase10_report.py                         # renders the Phase 10 report
 ```
 
 Real NFL stills are third-party assets and are **not vendored**. Tests and the single-frame smoke section

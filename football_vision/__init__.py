@@ -46,6 +46,18 @@ from football_vision.schema import (
     PositionSource,
     TrajectorySample,
     FieldTrajectory,
+    PlayPhase,
+    SnapSource,
+    PlayEndSource,
+    PLAY_PHASES,
+    SNAP_SOURCES,
+    PLAY_END_SOURCES,
+    PlayTimestampLabel,
+    SnapEstimate,
+    PlayEndEstimate,
+    SegmentationRefusal,
+    PlaySegment,
+    PlaySegmentationResult,
 )
 from football_vision.calibration import (
     naive_canny_hough,
@@ -80,6 +92,12 @@ from football_vision.data_paths import (
     require_nfl_frame,
     missing_nfl_frames,
     real_frames_skip_reason,
+)
+from football_vision.analytics import (
+    PlaySegmenter,
+    CollectiveMotionSegmenter,
+    MotionEvidence,
+    build_motion_evidence,
 )
 from football_vision.trajectory import (
     PlayerTrajectoryBuilder,
