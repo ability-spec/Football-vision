@@ -4,14 +4,6 @@
 **Hardware Target:** Local development on ASUS ROG Laptop (NVIDIA RTX 4060 8GB VRAM) + CPU fallback  
 **Engineering Cadence:** ~10 hours/week  
 
-**Implementation status (updated with Phase 10):** Stages I-II are complete (Phases 0, 16A, 1,
-15A, 2, 3, 4, 7, 8, 9) including the 0.4.1 remediation. Stage III has started: **Phase 10 play
-segmentation is implemented** in `football_vision/analytics/segmentation.py` with a frozen
-synthetic benchmark (`benchmarks/evaluate_phase10_segmentation.py`,
-`docs/PHASE10_PLAY_SEGMENTATION_REPORT.md`). The next steps on the critical path are Phase 11
-(pre-snap formations), Phase 12 (route/movement analysis), Phase 16B (full export schema) and
-Phase 13 (play-level analytics); Phase 17 visualization is still a placeholder.
-
 ---
 
 ## 1. Overall Product Pipeline

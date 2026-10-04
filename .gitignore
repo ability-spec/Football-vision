@@ -9,8 +9,6 @@ outputs/*
 !outputs/phase3_tracking_overview.png
 !outputs/phase4_trajectory_benchmark.json
 !outputs/phase4_trajectory_overview.png
-!outputs/phase10_segmentation_benchmark.json
-!outputs/phase10_segmentation_overview.png
 
 # Model weights & TensorRT engines
 *.pt
