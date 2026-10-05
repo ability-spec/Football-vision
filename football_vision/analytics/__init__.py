@@ -2,6 +2,8 @@
 
 from football_vision.analytics.formations import FormationSnapshot, analyze_formation
 from football_vision.analytics.routes import RouteAnalysis, analyze_route
+from football_vision.analytics.play import MetricValue, PlayAnalysis, analyze_play
+from football_vision.analytics.events import PlayEvent, detect_events
 
 from football_vision.analytics.segmentation import (
     DEFAULT_BASELINE_MAX_FRACTION,
@@ -39,6 +41,11 @@ __all__ = [
     "analyze_formation",
     "RouteAnalysis",
     "analyze_route",
+    "MetricValue",
+    "PlayAnalysis",
+    "analyze_play",
+    "PlayEvent",
+    "detect_events",
 
     "CollectiveMotionSegmenter",
     "MotionEvidence",
