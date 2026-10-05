@@ -1,10 +1,6 @@
-"""Play segmentation, formations, route geometry, play metrics, and event detection (Phases 10-14).
+"""Play segmentation and observed geometry analytics."""
 
-Phase 10 (play segmentation) is implemented in :mod:`football_vision.analytics.segmentation`.
-Phases 11-14 (pre-snap formations, route/movement analysis, play-level metrics,
-events) are not implemented yet; this package intentionally exports nothing for them
-rather than exposing placeholders.
-"""
+from football_vision.analytics.formations import FormationSnapshot, analyze_formation
 
 from football_vision.analytics.segmentation import (
     DEFAULT_BASELINE_MAX_FRACTION,
@@ -38,6 +34,9 @@ from football_vision.analytics.segmentation import (
 )
 
 __all__ = [
+    "FormationSnapshot",
+    "analyze_formation",
+
     "CollectiveMotionSegmenter",
     "MotionEvidence",
     "PlaySegmenter",
