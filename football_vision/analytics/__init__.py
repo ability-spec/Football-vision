@@ -1,6 +1,7 @@
 """Play segmentation and observed geometry analytics."""
 
 from football_vision.analytics.formations import FormationSnapshot, analyze_formation
+from football_vision.analytics.routes import RouteAnalysis, analyze_route
 
 from football_vision.analytics.segmentation import (
     DEFAULT_BASELINE_MAX_FRACTION,
@@ -36,6 +37,8 @@ from football_vision.analytics.segmentation import (
 __all__ = [
     "FormationSnapshot",
     "analyze_formation",
+    "RouteAnalysis",
+    "analyze_route",
 
     "CollectiveMotionSegmenter",
     "MotionEvidence",
