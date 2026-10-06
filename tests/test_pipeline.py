@@ -93,3 +93,18 @@ def test_csv_preserves_unknown_confidence_and_treats_labels_as_text(tmp_path):
     assert all(row["play_id"].startswith("'=") for row in rows)
     assert all(row["confidence"] == "" for row in rows)
     assert result["plays"][0]["play_id"] == document["plays"][0]["play_id"]
+
+
+@pytest.mark.parametrize("second, reason", [
+    (dict(play_id="one", start_frame=4, end_frame=6), "duplicate play_id"),
+    (dict(play_id="two", start_frame=3, end_frame=6), "overlaps"),
+])
+def test_conflicting_plays_are_rejected_before_inference(tmp_path, monkeypatch, second, reason):
+    labels = tmp_path / "plays.json"
+    labels.write_text(json.dumps(dict(plays=[dict(play_id="one", start_frame=0, end_frame=3), second])))
+    def unexpected_inference(*args, **kwargs):
+        pytest.fail("invalid play boundaries must not trigger video inference")
+    monkeypatch.setattr("football_vision.pipeline.run_video", unexpected_inference)
+    with pytest.raises(ValueError, match=reason):
+        run_workflow(tmp_path / "unopened.avi", labels, tmp_path / "out", source_kind="real")
+    assert not (tmp_path / "out").exists()

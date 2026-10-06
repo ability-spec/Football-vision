@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from football_vision.schema import PlayTimestampLabel
+from football_vision.analytics.segmentation import PlaySegmenter
 
 
 def load_labels(path: Path) -> tuple[str, list[PlayTimestampLabel], str]:
@@ -25,5 +26,6 @@ def load_labels(path: Path) -> tuple[str, list[PlayTimestampLabel], str]:
             if value is not None and (type(value) is not int or value < 0):
                 raise ValueError(f"{name} must be a nonnegative integer")
         labels.append(PlayTimestampLabel(**entry))
+    # Reject cross-play conflicts before video decoding or CV inference starts.
+    labels = PlaySegmenter.validate_labels(labels)
     return game, labels, hashlib.sha256(raw).hexdigest()
-
