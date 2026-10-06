@@ -142,3 +142,58 @@ def test_evaluator_cli_writes_provenance_and_refuses_overwrite(tmp_path):
     result = json.loads(out.read_text())
     assert len(result["annotation_sha256"]) == 64
     assert subprocess.run(cmd, capture_output=True).returncode == 2
+
+
+def test_video_play_workflow_exports_boundaries_metrics_and_review(tmp_path):
+    from football_vision.visualization.__main__ import render_video
+
+    video = tmp_path / "clip.avi"
+    writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 10, (160, 120))
+    assert writer.isOpened()
+    for _ in range(4):
+        writer.write(np.full((120, 160, 3), (30, 140, 30), dtype=np.uint8))
+    writer.release()
+    labels = tmp_path / "labels.json"
+    labels.write_text(json.dumps(dict(game_id="synthetic-game", plays=[
+        dict(play_id="one", start_frame=0, snap_frame=1, end_frame=3)])))
+    output = tmp_path / "analysis.json"
+    cmd = [sys.executable, "-m", "football_vision.evaluation.video", str(video),
+           "--source-kind", "synthetic", "--max-frames", "4", "--play-labels", str(labels),
+           "--out", str(output)]
+    completed = subprocess.run(cmd, capture_output=True, text=True)
+    assert completed.returncode == 0, completed.stderr
+    artifact = json.loads(output.read_text())
+    assert len(artifact["play_labels_sha256"]) == 64
+    assert [f["play_phase"] for f in artifact["frames"]] == ["pre_snap", "snap", "play", "play_end"]
+    play = artifact["plays"][0]
+    assert play["game_id"] == "synthetic-game"
+    assert play["metrics"]["play_duration_s"]["value"] == .3
+    assert play["metrics"]["position_sample_coverage"]["value"] is None
+    assert play["metrics"]["observed_track_count"]["value"] == 0
+    assert [event["kind"] for event in play["events"]["events"]] == ["snap", "play_end"]
+    assert render_video(video, output, tmp_path / "review.avi") == 4
+    labels.write_text(json.dumps(dict(plays=[dict(play_id="one", start_frame=0, end_frame=4)])))
+    output.unlink()
+    refused = subprocess.run(cmd, capture_output=True, text=True)
+    assert refused.returncode == 2 and "within decoded frames" in refused.stderr
+    assert not output.exists()
+
+
+def test_video_workflow_refuses_fractional_timestamps_and_unknown_snap(tmp_path):
+    from football_vision.schema import PlayTimestampLabel
+
+    video = tmp_path / "clip.avi"
+    writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*"MJPG"), 10, (96, 96))
+    assert writer.isOpened()
+    for _ in range(3):
+        writer.write(np.full((96, 96, 3), (30, 140, 30), dtype=np.uint8))
+    writer.release()
+    with pytest.raises(ValueError, match="integer"):
+        run_video(video, source_kind="synthetic", play_labels=[
+            PlayTimestampLabel("one", 0.5, end_frame=2)])
+    result = run_video(video, source_kind="synthetic", play_labels=[
+        PlayTimestampLabel("one", 0, end_frame=2)])
+    segment = result["segmentation"]["segments"][0]
+    assert segment["snap_frame"] is None
+    assert segment["snap_source"] == "unavailable"
+    assert result["plays"][0]["routes"] == []

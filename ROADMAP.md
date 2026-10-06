@@ -8,9 +8,12 @@
 15A, 2, 3, 4, 7, 8, 9) including the 0.4.1 remediation. Stage III has started: **Phase 10 play
 segmentation is implemented** in `football_vision/analytics/segmentation.py` with a frozen
 synthetic benchmark (`benchmarks/evaluate_phase10_segmentation.py`,
-`docs/PHASE10_PLAY_SEGMENTATION_REPORT.md`). The next steps on the critical path are Phase 11
-(pre-snap formations), Phase 12 (route/movement analysis), Phase 16B (full export schema) and
-Phase 13 (play-level analytics); Phase 17 visualization is still a placeholder.
+`docs/PHASE10_PLAY_SEGMENTATION_REPORT.md`). Observed formation/route geometry and play metrics
+are implemented. The CPU MVP entry point (`python -m football_vision`) now connects local video,
+manual play boundaries, JSON/CSV export, an HTML report, and synchronized AVI review.
+This delivers a bounded research workflow, not completion of every original phase: validated
+learned player perception, ball/possession events, Parquet export, GPU profiling, and real-game
+accuracy evaluation remain open. The synthetic demo verifies integration only.
 
 ---
 

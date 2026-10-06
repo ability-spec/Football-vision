@@ -24,6 +24,63 @@ not hashing or JSON serialization. `processing_fps` is throughput, not first-res
 The runner has **no annotation input**. It uses the untrained turf-contrast detector and
 relative calibration; no absolute field origin is inferred from labels.
 
+## Review the saved observations
+
+Render the decoded prediction window with synchronized boxes and a top-down view:
+
+```bash
+python -m football_vision.visualization /path/to/clip.mp4 predictions.json --out review.avi
+```
+
+The renderer verifies the video hash, refuses to overwrite existing files, and
+checks that the MJPEG output decodes to the expected number of frames. Green boxes
+are observed tracks; amber boxes are coasted tracks. The field view excludes
+coasted/dead-reckoning positions and refuses to combine coordinate epochs.
+Relative positions use a fixed local window per coordinate epoch without absolute
+yard-line labels, so changing player spread does not rescale the view frame by frame.
+Odd-sized frames are padded for MJPEG rather than cropped, and decoded output dimensions
+are checked. A missing
+field view means coordinates are unavailable, not that the field is empty.
+This visualization is a review aid and does not measure detector accuracy.
+
+## Analyze manually bounded plays
+
+Provide play timestamps in decoded, zero-based frame indices. This input contains
+play boundaries only, not player-position ground truth or detector annotations:
+
+```json
+{
+  "game_id": "game-001",
+  "plays": [
+    {"play_id": "play-001", "start_frame": 0, "snap_frame": 30, "end_frame": 120}
+  ]
+}
+```
+
+```bash
+python -m football_vision.evaluation.video /path/to/clip.mp4 --source-kind real --max-frames 300 --play-labels plays.json --out analysis.json
+python -m football_vision.visualization /path/to/clip.mp4 analysis.json --out review.avi
+```
+
+The analysis artifact adds full trajectories, segmentation/refusals, per-frame
+play phases, formation/route geometry, scoped events, and play metrics with units,
+definitions and limitations. It records the exact timestamp-input SHA-256. All
+timestamps must be integers within the decoded window; manual end frames are
+required. Plays must not overlap. Omitting a snap requests collective-motion
+estimation, which may refuse when measured trajectory evidence is insufficient.
+No snap is invented in that case. No play is inferred without a manual start.
+
+Team assignments and offensive direction are not inferred by this workflow;
+team-dependent metrics remain unavailable. Null geometry metrics mean unavailable
+evidence, not perfect accuracy or zero distance. In particular, pre-snap motion
+count requires at least one
+consecutive pair of accepted pre-snap positions: post-snap-only tracks do not
+establish a zero pre-snap count, and coordinate changes/gaps never supply an edge.
+The untrained CPU detector is
+still a baseline, so a successful export does not establish real-video accuracy.
+The source-video hash in the output binds the results to the analyzed clip;
+users must ensure the supplied timestamps belong to that clip.
+
 ## Prepare independent labels
 
 1. Select development and held-out test clips **by game/camera source**, not adjacent frames

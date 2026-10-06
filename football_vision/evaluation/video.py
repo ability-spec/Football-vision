@@ -16,9 +16,14 @@ from football_vision.calibration.tracker import CalibrationTracker
 from football_vision.detection.detector import TurfContrastPlayerDetector
 from football_vision.tracking.tracker import PlayerTracker
 from football_vision.trajectory.builder import PlayerTrajectoryBuilder
+from football_vision.analytics import PlaySegmenter, analyze_play
+from football_vision.schema import PlayTimestampLabel
+from football_vision.evaluation.labels import load_labels
 
 
-def run_video(path: Path, *, source_kind: str, max_frames: int = 300) -> dict:
+def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
+              play_labels: list[PlayTimestampLabel] | None = None,
+              game_id: str = "") -> dict:
     if source_kind not in ("real", "synthetic") or max_frames < 1:
         raise ValueError("source_kind must be real/synthetic; max_frames must be positive")
     digest = hashlib.sha256()
@@ -74,7 +79,7 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300) -> dict:
         for source in sorted(package_root.rglob("*.py")):
             code_hash.update(str(source.relative_to(package_root)).encode())
             code_hash.update(source.read_bytes())
-        return {
+        result = {
             "schema_version": 1,
             "package_version": __version__,
             "source_kind": source_kind,
@@ -93,6 +98,25 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300) -> dict:
             "coordinate_policy": "relative; automatic epoch boundaries are heuristic",
             "frames": frames,
         }
+        if play_labels is not None:
+            for label in play_labels:
+                for name in ("start_frame", "snap_frame", "end_frame"):
+                    value = getattr(label, name)
+                    if value is not None and (type(value) is not int or not 0 <= value < len(frames)):
+                        raise ValueError(f"{name} must be an integer within decoded frames")
+                if label.end_frame is None:
+                    raise ValueError("manual end_frame is required for bounded video analysis")
+            trajectories = builder.finalize()
+            segmentation = PlaySegmenter(fps=fps).segment(play_labels, trajectories, game_id=game_id)
+            result["segmentation"] = segmentation.to_dict()
+            result["plays"] = [analyze_play(segment, trajectories).to_dict()
+                               for segment in segmentation.segments]
+            result["trajectories"] = [trajectory.to_dict() for trajectory in trajectories]
+            phases = segmentation.frame_phases()
+            for record in frames:
+                record["play_phase"] = phases.get(record["frame_id"], "outside_play")
+            result["analytics_policy"] = "manual play boundaries; teams and offense unknown"
+        return result
     finally:
         capture.release()
 
@@ -103,14 +127,24 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--source-kind", choices=["real", "synthetic"], required=True)
     parser.add_argument("--max-frames", type=int, default=300)
+    parser.add_argument("--play-labels", type=Path,
+                        help="JSON with game_id and plays (play_id/start_frame/end_frame/snap_frame)")
     args = parser.parse_args()
     try:
         if args.out.exists():
             raise FileExistsError(args.out)
-        result = run_video(args.video, source_kind=args.source_kind, max_frames=args.max_frames)
+        labels = None
+        game_id = ""
+        labels_hash = None
+        if args.play_labels is not None:
+            game_id, labels, labels_hash = load_labels(args.play_labels)
+        result = run_video(args.video, source_kind=args.source_kind, max_frames=args.max_frames,
+                           play_labels=labels, game_id=game_id)
+        if labels_hash is not None:
+            result["play_labels_sha256"] = labels_hash
         with args.out.open("x") as f:
             json.dump(result, f, indent=2, allow_nan=False)
-    except (ValueError, OSError, cv2.error) as exc:
+    except (ValueError, TypeError, OSError, cv2.error) as exc:
         parser.exit(2, f"Video run failed: {exc}\n")
 
 

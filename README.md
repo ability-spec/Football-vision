@@ -2,6 +2,43 @@
 
 Modular computer-vision pipeline for American football broadcast and All-22 video: zero-training projective field calibration, player/ball tracking, coordinate projection, and play-level geometry analytics.
 
+## CPU MVP: one workflow
+
+After installing `.[dev]` in the virtual environment, try the self-contained synthetic demo:
+
+```bash
+source .venv/bin/activate
+python -m football_vision --demo --out outputs/my-demo
+```
+
+For your own video, create `plays.json` with manually declared play boundaries:
+
+```json
+{"game_id":"game-001","plays":[{"play_id":"play-001","start_frame":0,"snap_frame":30,"end_frame":120}]}
+```
+
+```bash
+python -m football_vision clip.mp4 --plays plays.json --source-kind real --max-frames 300 --out outputs/my-run
+```
+
+Open `outputs/my-run/report.html` for play metrics and artifact links. Each run creates
+`analysis.json` (predictions, trajectories, segmentation, analytics and provenance),
+`metrics.csv`, `review.avi` (synchronized boxes, field view and play phase),
+`preview.png` (sampled frames viewable without video playback), `report.html`,
+and `manifest.json` (artifact hashes). Use a new output directory
+for each run; previous results are never overwritten. Failed export attempts remove
+their own incomplete output. No model download, GPU or external service is required.
+CSV includes metric source, confidence and limitations. Unavailable values remain blank;
+labels beginning with spreadsheet formula characters receive a leading apostrophe in
+CSV only. JSON retains the exact original labels.
+
+Frame timestamps are zero-based integers and must lie within the decoded window.
+Manual starts and ends are required. Omit `snap_frame` to request motion-based snap
+estimation; insufficient evidence produces a documented refusal. Unknown geometry,
+team roles and possession events remain unavailable. The demo tests integration,
+not football accuracy; the untrained CPU detector is a research baseline. Real-video
+accuracy requires independent labeled footage using [the evaluation protocol](docs/REAL_VIDEO_EVALUATION.md).
+
 ---
 
 ## Current Status: research prototype
@@ -11,14 +48,16 @@ is implemented, benchmarked on frozen synthetic splits and documented in
 [the Phase 10 report](docs/PHASE10_PLAY_SEGMENTATION_REPORT.md).
 
 **0.4.1 remediation:** clean-install/CI fixes, coordinate-boundary and trajectory corrections,
-and an offline video evaluation workflow are implemented. See
+and an offline video evaluation workflow are implemented. The CPU MVP now connects
+video processing, play analytics, exports and synchronized review. See
 [the finding-by-finding remediation](docs/OCTOBER_REMEDIATION.md) and
 [the real-video protocol](docs/REAL_VIDEO_EVALUATION.md).
 
 **The benchmark numbers below are frozen historical results, not measurements of 0.4.1.**
-Real multi-frame detection/tracking accuracy remains unmeasured. Analytics covers Phase 10 play
-segmentation only (Phases 11-14 pending) and visualization is still a placeholder; the repository
-is not a finished broadcast-analysis product.
+Real multi-frame detection/tracking accuracy remains unmeasured. Analytics includes play
+segmentation, observed formation/route geometry, scoped events and play metrics. The CPU MVP
+connects these to video processing and synchronized review; validated learned perception,
+ball/possession analysis and a browser-based synchronized player remain future work.
 
 
 - **Validated Core (`football_vision/calibration/`):**
