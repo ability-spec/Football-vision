@@ -47,3 +47,39 @@ def test_scoped_events_require_consecutive_uncertainty_evidence():
     for override in ({"coordinate_segment": 1}, {"covariance_xy": None}, {"track_state": "coasted"}):
         events = detect_events(segment(), [sample(1, (10, 1)), sample(2, (10, -1), **override)])
         assert not any(e["kind"] == "sideline_exit_candidate" for e in events["events"])
+
+
+def test_presnap_motion_is_unknown_without_presnap_edges(tmp_path):
+    # Post-snap motion cannot establish whether this track moved before the snap.
+    result = analyze_play(segment(snap_frame=2), [trajectory([
+        sample(2, (10, 10)), sample(3, (12, 10))])])
+    assert result.metrics["observed_path_length_sum_yd"].value == 2
+    assert result.metrics["presnap_motion_track_count"].value is None
+    # The distinction must survive the user-facing CSV/HTML export.
+    import csv
+    from football_vision.pipeline import _write_report
+    _write_report(dict(plays=[result.to_dict()], segmentation=dict(refusals=[]),
+                       frames_processed=4, source_kind="synthetic", video_sha256="0" * 64), tmp_path)
+    with (tmp_path / "metrics.csv").open() as file:
+        rows = {row["metric"]: row for row in csv.DictReader(file)}
+    assert rows["presnap_motion_track_count"]["value"] == ""
+    assert "Unavailable" in (tmp_path / "report.html").read_text()
+    # One pre-snap position plus the snap position is still not a pre-snap edge.
+    result = analyze_play(segment(snap_frame=2), [trajectory([
+        sample(1, (10, 10)), sample(2, (12, 10)), sample(3, (13, 10))])])
+    assert result.metrics["presnap_motion_track_count"].value is None
+
+
+def test_presnap_motion_distinguishes_observed_stillness_and_movement():
+    for displacement, expected in ((0, 0), (1, 1)):
+        result = analyze_play(segment(snap_frame=2), [trajectory([
+            sample(0, (10, 10)), sample(1, (10 + displacement, 10)), sample(2, (20, 10))])])
+        assert result.metrics["presnap_motion_track_count"].value == expected
+        assert result.routes[0]["segments"][0]["presnap_n_edges"] == 1
+
+
+def test_presnap_motion_does_not_bridge_coordinate_change():
+    result = analyze_play(segment(snap_frame=2), [trajectory([
+        sample(0, (10, 10)), sample(1, (20, 10), coordinate_segment=1),
+        sample(2, (21, 10), coordinate_segment=1), sample(3, (22, 10), coordinate_segment=1)])])
+    assert result.metrics["presnap_motion_track_count"].value is None

@@ -121,6 +121,7 @@ def analyze_route(
             else:
                 stem = "mixed"
         edges = list(zip(run, run[1:]))
+        presnap_edges = [(a, b) for a, b in edges if b.frame_id < snap_frame]
         # Touching the reference and returning to the same side is not a crossing.
         signs = [(s.frame_id, 1 if s.field_position[1] > crossing_y else -1)
                  for s in run if crossing_y is not None and s.field_position[1] != crossing_y]
@@ -134,8 +135,9 @@ def analyze_route(
             "forward_displacement_yd": dx, "lateral_displacement_yd": dy,
             "max_forward_depth_yd": max(forward), "net_stem": stem,
             "distance_yd": sum(math.dist(a.field_position, b.field_position) for a, b in edges),
+            "presnap_n_edges": len(presnap_edges),
             "presnap_distance_yd": sum(math.dist(a.field_position, b.field_position)
-                                       for a, b in edges if b.frame_id < snap_frame),
+                                       for a, b in presnap_edges),
             "crossing_frame_ids": crossings if crossing_y is not None else None,
         })
     if any(s["n_edges"] for s in result.segments):

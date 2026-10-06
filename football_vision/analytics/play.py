@@ -93,8 +93,8 @@ def analyze_play(segment: PlaySegment, trajectories: Sequence[FieldTrajectory], 
     metric("observed_path_length_sum_yd", sum(part["distance_yd"] for part in route_segments) if measured_edges else None,
            "yards", "Sum of per-track consecutive observed edges; never bridges gaps; not unique-athlete distance")
     metric("presnap_motion_track_count", sum(any(part["presnap_distance_yd"] >= 1.0 for part in route["segments"])
-           for route in result.routes) if measured_edges else None,
-           "tracks", "Tracks with at least one yard of pre-snap path within a continuous segment")
+           for route in result.routes) if any(part["presnap_n_edges"] for part in route_segments) else None,
+           "tracks", "Tracks with at least one yard of pre-snap path within a continuous segment; unavailable without consecutive pre-snap observations")
     offensive_distances = [entry["distance_yd"] for route in result.routes
         if offense_team is not None and teams.get(route["track_id"]) == offense_team
         for entry in route["separation"] if entry["distance_yd"] is not None]
