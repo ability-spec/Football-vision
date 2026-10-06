@@ -90,6 +90,8 @@ class CalibrationResult:
     diagnostics: Dict[str, Any] = field(default_factory=dict)
     # Stable field axes/origin identity, NOT a homography/matrix revision.
     coordinate_frame_id: Optional[str] = None
+    # Shot discontinuity is independent of whether the new frame calibrates.
+    camera_cut_detected: bool = False
 
     @property
     def vanishing_point(self) -> Optional[Tuple[float, float]]:
@@ -203,6 +205,7 @@ class CalibrationResult:
             "propagation_age": self.propagation_age,
             "diagnostics": dict(self.diagnostics),
             "coordinate_frame_id": self.coordinate_frame_id,
+            "camera_cut_detected": self.camera_cut_detected,
             "runtime_ms": float(self.runtime_ms),
             "notes": list(self.notes),
         }

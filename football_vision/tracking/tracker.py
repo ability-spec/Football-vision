@@ -139,6 +139,14 @@ class PlayerTracker:
         if self._last_frame_id is not None and frame_id <= self._last_frame_id:
             raise ValueError("frame_id must increase strictly")
         self._last_frame_id = int(frame_id)
+        if calibration is not None and (
+            calibration.camera_cut_detected
+            or calibration.failure_reason == "camera_cut_uncalibrated"
+        ):
+            # Different cameras cannot establish image-space identity continuity.
+            # Keep the ID allocator: resetting it would merge new players into old
+            # trajectories stored by downstream consumers.
+            self._tracks.clear()
         # Expire identities before association when the unobserved interval is too long.
         self._tracks = [t for t in self._tracks
                         if t.missed_frames + frame_id - t.frame_id - 1 <= self.max_missed_frames]

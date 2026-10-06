@@ -21,6 +21,11 @@ frame counts cannot reliably distinguish clean EOF from truncated decoding.
 The output includes video SHA-256, package-source SHA-256, package/OpenCV/NumPy versions,
 detector settings, decoded frame count and wall time. Wall time covers decode and inference,
 not hashing or JSON serialization. `processing_fps` is throughput, not first-result latency.
+Each frame also reports `camera_cut_detected`. A detected cut retires active image-space
+tracks without reusing IDs and clears trajectory prediction state, even if the new shot
+calibrates successfully. Tracks across different shots are not unique athlete identities.
+Cut detection is heuristic; see [architecture risks](ARCHITECTURE_RISKS.md) for its limits
+and the constraints on longer clips, timestamps and future parallel processing.
 The runner has **no annotation input**. It uses the untrained turf-contrast detector and
 relative calibration; no absolute field origin is inferred from labels.
 

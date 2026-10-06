@@ -202,6 +202,8 @@ class CalibrationTracker:
                     self._prev_gray, self._prev_turf, curr_gray, curr_turf
                 )
 
+        # Emit a one-frame lifecycle signal even when direct calibration succeeds.
+        cal = replace(cal, camera_cut_detected=is_cut)
         if is_cut:
             self.H = None
             self.age = 0

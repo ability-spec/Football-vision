@@ -230,7 +230,10 @@ class PlayerTrajectoryBuilder:
         extra_field_sigma_yd = self._geometry_extra_sigma_yd(calibration)
 
         samples: List[TrajectorySample] = []
-        if calibration is not None and calibration.failure_reason == "camera_cut_uncalibrated":
+        if calibration is not None and (
+            calibration.camera_cut_detected
+            or calibration.failure_reason == "camera_cut_uncalibrated"
+        ):
             # A cut affects absent tracks too; otherwise they can return carrying
             # predictions in the preceding shot's axes.
             for tid, old in list(self._states.items()):

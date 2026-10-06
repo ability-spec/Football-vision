@@ -71,7 +71,9 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
                     }
                 )
             frames.append(
-                {"frame_id": fid, "players": players, "calibration_projectable": calibration.can_project()}
+                {"frame_id": fid, "players": players,
+                 "calibration_projectable": calibration.can_project(),
+                 "camera_cut_detected": calibration.camera_cut_detected}
             )
         elapsed = time.perf_counter() - start
         code_hash = hashlib.sha256()
