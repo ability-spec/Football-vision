@@ -125,6 +125,12 @@ def test_video_runner_decodes_without_ground_truth(tmp_path, two_stage):
     assert result["detector_settings"]["min_confidence"] == (0.1 if two_stage else 0.4)
     assert result["tracking_settings"]["association"] == (
         "strong_then_weak" if two_stage else "single_stage")
+    from football_vision.storage import import_analysis, report
+    db_path = tmp_path / "analysis.sqlite"
+    run_id, inserted = import_analysis(db_path, result)
+    assert inserted
+    assert report(db_path, run_id, "runs")[0]["frames_processed"] == 3
+    assert report(db_path, run_id, "coverage")[0]["observed_records"] == 0
 
 
 def test_bad_video_is_refused(tmp_path):
@@ -164,7 +170,7 @@ def test_video_play_workflow_exports_boundaries_metrics_and_review(tmp_path):
     output = tmp_path / "analysis.json"
     cmd = [sys.executable, "-m", "football_vision.evaluation.video", str(video),
            "--source-kind", "synthetic", "--max-frames", "4", "--play-labels", str(labels),
-           "--out", str(output)]
+           "--out", str(output), "--db", str(tmp_path / "plays.sqlite")]
     completed = subprocess.run(cmd, capture_output=True, text=True)
     assert completed.returncode == 0, completed.stderr
     artifact = json.loads(output.read_text())

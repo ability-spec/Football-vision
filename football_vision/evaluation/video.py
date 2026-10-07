@@ -7,6 +7,7 @@ import hashlib
 import json
 from pathlib import Path
 import time
+import sqlite3
 
 import cv2
 import numpy as np
@@ -138,6 +139,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("video", type=Path)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--db", type=Path, help="Also import the completed analysis into SQLite")
     parser.add_argument("--source-kind", choices=["real", "synthetic"], required=True)
     parser.add_argument("--max-frames", type=int, default=300)
     parser.add_argument("--two-stage-tracking", action="store_true",
@@ -160,7 +162,11 @@ def main():
             result["play_labels_sha256"] = labels_hash
         with args.out.open("x") as f:
             json.dump(result, f, indent=2, allow_nan=False)
-    except (ValueError, TypeError, OSError, cv2.error) as exc:
+        if args.db is not None:
+            from football_vision.storage import import_analysis
+            run_id, inserted = import_analysis(args.db, result)
+            print(json.dumps({"run_id": run_id, "inserted": inserted}))
+    except (ValueError, TypeError, OSError, cv2.error, sqlite3.Error) as exc:
         parser.exit(2, f"Video run failed: {exc}\n")
 
 
