@@ -54,6 +54,14 @@ class _InternalTrackState:
     last_team_confidence: float = 0.0
     short_occlusion_recovered: bool = False
     detector_metadata: Dict[str, Any] = field(default_factory=dict)
+    last_observed_frame_id: Optional[int] = None
+    last_observed_footpoint: Optional[Tuple[float, float]] = None
+
+    def __post_init__(self) -> None:
+        if self.last_observed_frame_id is None:
+            self.last_observed_frame_id = self.frame_id
+        if self.last_observed_footpoint is None:
+            self.last_observed_footpoint = self.footpoint
 
     def predict_next_bbox_and_footpoint(self, dt_frames: int = 1) -> Tuple[Tuple[float, float, float, float], Tuple[float, float]]:
         damp = float(0.85 ** self.missed_frames) * (1.0 - 0.85 ** dt_frames) / (1.0 - 0.85)
@@ -203,8 +211,11 @@ class PlayerTracker:
                 t_assign = teams_list[det_idx]
 
                 dt = max(1, int(frame_id) - int(trk.frame_id))
-                obs_vx = (det.footpoint[0] - trk.footpoint[0]) / dt
-                obs_vy = (det.footpoint[1] - trk.footpoint[1]) / dt
+                # Coasting mutates the working position. Keep a separate measured
+                # anchor so recovery estimates motion over the full observation gap.
+                observation_dt = int(frame_id) - trk.last_observed_frame_id
+                obs_vx = (det.footpoint[0] - trk.last_observed_footpoint[0]) / observation_dt
+                obs_vy = (det.footpoint[1] - trk.last_observed_footpoint[1]) / observation_dt
                 if trk.hits == 1 and trk.missed_frames == 0:
                     new_vel = (obs_vx, obs_vy)
                 else:
@@ -214,7 +225,7 @@ class PlayerTracker:
                         a * obs_vy + (1.0 - a) * trk.velocity_uv[1],
                     )
 
-                recovered = trk.missed_frames > 0
+                recovered = observation_dt > 1
                 if recovered:
                     self.total_occlusion_recoveries += 1
 
@@ -222,6 +233,8 @@ class PlayerTracker:
                 trk.bbox = det.bbox
                 trk.footpoint = det.footpoint
                 trk.footpoint_estimate = det.footpoint_estimate
+                trk.last_observed_frame_id = int(frame_id)
+                trk.last_observed_footpoint = det.footpoint
                 trk.velocity_uv = (round(float(new_vel[0]), 4), round(float(new_vel[1]), 4))
                 trk.age += dt
                 trk.missed_frames = 0
@@ -273,6 +286,8 @@ class PlayerTracker:
                 bbox=det.bbox,
                 footpoint=det.footpoint,
                 footpoint_estimate=det.footpoint_estimate,
+                last_observed_frame_id=int(frame_id),
+                last_observed_footpoint=det.footpoint,
                 velocity_uv=(0.0, 0.0),
                 age=1,
                 missed_frames=0,
