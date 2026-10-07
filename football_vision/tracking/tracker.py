@@ -112,6 +112,8 @@ class PlayerTracker:
         min_match_score: float = 0.22,
         min_init_confidence: float = 0.35,
         velocity_smoothing: float = 0.60,
+        high_confidence_threshold: Optional[float] = None,
+        recovery_min_hits: int = 3,
         projector: Optional[FieldProjector] = None,
     ) -> None:
         self.max_missed_frames = int(max_missed_frames)
@@ -120,6 +122,16 @@ class PlayerTracker:
         self.min_match_score = float(min_match_score)
         self.min_init_confidence = float(min_init_confidence)
         self.velocity_smoothing = float(velocity_smoothing)
+        if high_confidence_threshold is not None and (
+            isinstance(high_confidence_threshold, bool)
+            or not np.isfinite(high_confidence_threshold)
+            or not 0.1 < high_confidence_threshold <= 1.0
+        ):
+            raise ValueError("high_confidence_threshold must be finite and in (0.1, 1]")
+        if type(recovery_min_hits) is not int or recovery_min_hits < 1:
+            raise ValueError("recovery_min_hits must be a positive integer")
+        self.high_confidence_threshold = high_confidence_threshold
+        self.recovery_min_hits = recovery_min_hits
         self.projector = projector if projector is not None else FieldProjector()
 
         self._last_frame_id: Optional[int] = None
@@ -195,11 +207,34 @@ class PlayerTracker:
                     else:
                         score_mat[i, j] = -1e6
 
-            row_ind, col_ind = linear_sum_assignment(-score_mat)
-            for r, c in zip(row_ind, col_ind):
-                if valid_mat[r, c]:
-                    matched_trk_indices[int(r)] = int(c)
-                    matched_det_indices.add(int(c))
+            def associate(track_indices, det_indices, *, weak=False):
+                if not track_indices or not det_indices:
+                    return
+                subset = np.ix_(track_indices, det_indices)
+                valid = valid_mat[subset].copy()
+                if weak:
+                    # Nearby weak boxes alone are insufficient evidence of identity.
+                    for r, ti in enumerate(track_indices):
+                        for c, di in enumerate(det_indices):
+                            valid[r, c] &= _bbox_iou(predicted[ti][0], detections[di].bbox) >= 0.3
+                costs = np.where(valid, -score_mat[subset], 1e6)
+                rows, cols = linear_sum_assignment(costs)
+                for r, c in zip(rows, cols):
+                    if valid[r, c]:
+                        ti, di = track_indices[r], det_indices[c]
+                        matched_trk_indices[ti] = di
+                        matched_det_indices.add(di)
+
+            threshold = self.high_confidence_threshold
+            if threshold is None:
+                associate(list(range(n_trks)), list(range(n_dets)))
+            else:
+                strong = [j for j, d in enumerate(detections) if d.confidence >= threshold]
+                weak = [j for j, d in enumerate(detections) if 0.1 <= d.confidence < threshold]
+                associate(list(range(n_trks)), strong)
+                mature = [i for i, t in enumerate(self._tracks)
+                          if i not in matched_trk_indices and t.hits >= self.recovery_min_hits]
+                associate(mature, weak, weak=True)
 
         updated_internal: List[_InternalTrackState] = []
 
@@ -273,7 +308,8 @@ class PlayerTracker:
         unmatched_dets = [
             j
             for j in range(n_dets)
-            if j not in matched_det_indices and detections[j].confidence >= self.min_init_confidence
+            if j not in matched_det_indices
+            and detections[j].confidence >= max(self.min_init_confidence, self.high_confidence_threshold or 0)
         ]
         unmatched_dets.sort(key=lambda j: (detections[j].bbox[0], detections[j].bbox[1]))
 
@@ -330,4 +366,3 @@ class PlayerTracker:
 
         self.projector.update_tracks_with_projection(output_tracks, calibration)
         return output_tracks
-

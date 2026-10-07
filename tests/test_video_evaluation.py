@@ -107,19 +107,24 @@ def test_invalid_or_incomparable_inputs_are_refused(mutation):
         evaluate(gt, p)
 
 
-def test_video_runner_decodes_without_ground_truth(tmp_path):
+@pytest.mark.parametrize("two_stage", [False, True])
+def test_video_runner_decodes_without_ground_truth(tmp_path, two_stage):
     path = tmp_path / "synthetic.avi"
     writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), 10.0, (96, 96))
     assert writer.isOpened(), "CI requires OpenCV's MJPEG encoder for this contract test"
     for _ in range(3):
         writer.write(np.full((96, 96, 3), (30, 140, 30), dtype=np.uint8))
     writer.release()
-    result = run_video(path, source_kind="synthetic", max_frames=10)
+    result = run_video(path, source_kind="synthetic", max_frames=10,
+                       two_stage_tracking=two_stage)
     assert len(result["frames"]) == 3 and result["fps"] == 10
     assert len(result["video_sha256"]) == 64
     assert all(not f["calibration_projectable"] for f in result["frames"])
     assert all(f["players"] == [] for f in result["frames"])
     assert result["wall_time_s"] > 0
+    assert result["detector_settings"]["min_confidence"] == (0.1 if two_stage else 0.4)
+    assert result["tracking_settings"]["association"] == (
+        "strong_then_weak" if two_stage else "single_stage")
 
 
 def test_bad_video_is_refused(tmp_path):

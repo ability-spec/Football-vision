@@ -23,7 +23,7 @@ from football_vision.evaluation.labels import load_labels
 
 def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
               play_labels: list[PlayTimestampLabel] | None = None,
-              game_id: str = "") -> dict:
+              game_id: str = "", two_stage_tracking: bool = False) -> dict:
     if source_kind not in ("real", "synthetic") or max_frames < 1:
         raise ValueError("source_kind must be real/synthetic; max_frames must be positive")
     digest = hashlib.sha256()
@@ -38,8 +38,10 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
         advertised_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
         if not np.isfinite(fps) or fps <= 0:
             raise ValueError("Video has no valid frame rate")
-        detector = TurfContrastPlayerDetector()
-        tracker = PlayerTracker()
+        # Weak recovery needs boxes that the default 0.4 detector filter discards.
+        detector = (TurfContrastPlayerDetector(min_confidence=0.1) if two_stage_tracking
+                    else TurfContrastPlayerDetector())
+        tracker = PlayerTracker(high_confidence_threshold=0.4 if two_stage_tracking else None)
         geometry = CalibrationTracker()
         builder = PlayerTrajectoryBuilder(fps=fps)
         frames = []
@@ -61,6 +63,7 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
                 players.append(
                     {
                         "track_id": t.track_id,
+                        "detection_confidence": t.detection_confidence,
                         "bbox": list(t.bbox),
                         "observed": t.missed_frames == 0,
                         "field_position": s.field_position,
@@ -90,6 +93,14 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
             "opencv_version": cv2.__version__,
             "numpy_version": np.__version__,
             "detector_settings": vars(detector),
+            "tracking_settings": {
+                "association": "strong_then_weak" if two_stage_tracking else "single_stage",
+                "high_confidence_threshold": tracker.high_confidence_threshold,
+                "weak_confidence_floor": 0.1 if two_stage_tracking else None,
+                "recovery_min_hits": tracker.recovery_min_hits,
+                "weak_min_iou": 0.3 if two_stage_tracking else None,
+                "max_missed_frames": tracker.max_missed_frames,
+            },
             "fps": fps,
             "advertised_frames": advertised_frames,
             "frames_processed": len(frames),
@@ -129,6 +140,8 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--source-kind", choices=["real", "synthetic"], required=True)
     parser.add_argument("--max-frames", type=int, default=300)
+    parser.add_argument("--two-stage-tracking", action="store_true",
+                        help="Experimental: strong detections first, weak boxes recover mature tracks")
     parser.add_argument("--play-labels", type=Path,
                         help="JSON with game_id and plays (play_id/start_frame/end_frame/snap_frame)")
     args = parser.parse_args()
@@ -141,7 +154,8 @@ def main():
         if args.play_labels is not None:
             game_id, labels, labels_hash = load_labels(args.play_labels)
         result = run_video(args.video, source_kind=args.source_kind, max_frames=args.max_frames,
-                           play_labels=labels, game_id=game_id)
+                           play_labels=labels, game_id=game_id,
+                           two_stage_tracking=args.two_stage_tracking)
         if labels_hash is not None:
             result["play_labels_sha256"] = labels_hash
         with args.out.open("x") as f:
