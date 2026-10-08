@@ -1,4 +1,4 @@
-"""Run the untrained CPU baseline on a local video, without annotation access."""
+"""Run a selected CPU detector on local video, without annotation access."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import numpy as np
 
 from football_vision import __version__, calibrate_frame
 from football_vision.calibration.tracker import CalibrationTracker
-from football_vision.detection.detector import TurfContrastPlayerDetector
+from football_vision.detection.yolox import create_player_detector
 from football_vision.tracking.tracker import PlayerTracker
 from football_vision.trajectory.builder import PlayerTrajectoryBuilder
 from football_vision.analytics import PlaySegmenter, analyze_play
@@ -24,9 +24,12 @@ from football_vision.evaluation.labels import load_labels
 
 def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
               play_labels: list[PlayTimestampLabel] | None = None,
-              game_id: str = "", two_stage_tracking: bool = False) -> dict:
+              game_id: str = "", two_stage_tracking: bool = False,
+              detector_kind: str = "turf", weights: Path | None = None) -> dict:
     if source_kind not in ("real", "synthetic") or max_frames < 1:
         raise ValueError("source_kind must be real/synthetic; max_frames must be positive")
+    detector = (create_player_detector(detector_kind, weights, min_confidence=0.1) if two_stage_tracking
+                else create_player_detector(detector_kind, weights))
     digest = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -39,9 +42,6 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
         advertised_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
         if not np.isfinite(fps) or fps <= 0:
             raise ValueError("Video has no valid frame rate")
-        # Weak recovery needs boxes that the default 0.4 detector filter discards.
-        detector = (TurfContrastPlayerDetector(min_confidence=0.1) if two_stage_tracking
-                    else TurfContrastPlayerDetector())
         tracker = PlayerTracker(high_confidence_threshold=0.4 if two_stage_tracking else None)
         geometry = CalibrationTracker()
         builder = PlayerTrajectoryBuilder(fps=fps)
@@ -93,7 +93,7 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
             "pipeline_sha256": code_hash.hexdigest(),
             "opencv_version": cv2.__version__,
             "numpy_version": np.__version__,
-            "detector_settings": vars(detector),
+            **detector.metadata(),
             "tracking_settings": {
                 "association": "strong_then_weak" if two_stage_tracking else "single_stage",
                 "high_confidence_threshold": tracker.high_confidence_threshold,
@@ -108,7 +108,6 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
             "max_frames": max_frames,
             "wall_time_s": elapsed,
             "processing_fps": len(frames) / elapsed,
-            "detector": "TurfContrastPlayerDetector (untrained CPU baseline)",
             "coordinate_policy": "relative; automatic epoch boundaries are heuristic",
             "frames": frames,
         }
@@ -123,7 +122,7 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
             trajectories = builder.finalize()
             segmentation = PlaySegmenter(fps=fps).segment(play_labels, trajectories, game_id=game_id)
             result["segmentation"] = segmentation.to_dict()
-            result["plays"] = [analyze_play(segment, trajectories).to_dict()
+            result["plays"] = [analyze_play(segment, trajectories, offense_direction=None).to_dict()
                                for segment in segmentation.segments]
             result["trajectories"] = [trajectory.to_dict() for trajectory in trajectories]
             phases = segmentation.frame_phases()
@@ -144,9 +143,15 @@ def main():
     parser.add_argument("--max-frames", type=int, default=300)
     parser.add_argument("--two-stage-tracking", action="store_true",
                         help="Experimental: strong detections first, weak boxes recover mature tracks")
+    parser.add_argument("--detector", choices=["turf", "yolox", "yolox-tiled"], default="turf")
+    parser.add_argument("--weights", type=Path, help="local official YOLOX-Tiny 0.1.1rc0 ONNX weights")
     parser.add_argument("--play-labels", type=Path,
                         help="JSON with game_id and plays (play_id/start_frame/end_frame/snap_frame)")
+    parser.add_argument("--opencv-threads", type=int, default=2, help="positive CPU thread budget (default: 2)")
     args = parser.parse_args()
+    if args.opencv_threads < 1:
+        parser.error("--opencv-threads must be positive")
+    cv2.setNumThreads(args.opencv_threads)
     try:
         if args.out.exists():
             raise FileExistsError(args.out)
@@ -157,7 +162,8 @@ def main():
             game_id, labels, labels_hash = load_labels(args.play_labels)
         result = run_video(args.video, source_kind=args.source_kind, max_frames=args.max_frames,
                            play_labels=labels, game_id=game_id,
-                           two_stage_tracking=args.two_stage_tracking)
+                           two_stage_tracking=args.two_stage_tracking,
+                           detector_kind=args.detector, weights=args.weights)
         if labels_hash is not None:
             result["play_labels_sha256"] = labels_hash
         with args.out.open("x") as f:

@@ -94,7 +94,7 @@ def test_video_runner_exports_cut_and_separates_ids(tmp_path, monkeypatch):
     results = iter([calibration(), replace(calibration(), camera_cut_detected=True), calibration()])
     monkeypatch.setattr("football_vision.evaluation.video.calibrate_frame", lambda image: calibration())
     monkeypatch.setattr(CalibrationTracker, "update_from_result", lambda *args: next(results))
-    monkeypatch.setattr("football_vision.evaluation.video.TurfContrastPlayerDetector.detect",
+    monkeypatch.setattr("football_vision.detection.detector.TurfContrastPlayerDetector.detect",
                         lambda self, image, frame_id: [detection(frame_id)])
     frames = run_video(video, source_kind="synthetic")["frames"]
     assert [f["camera_cut_detected"] for f in frames] == [False, True, False]

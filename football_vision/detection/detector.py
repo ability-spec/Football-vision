@@ -25,6 +25,12 @@ class BasePlayerDetector(ABC):
     detector_name: str = "base_detector"
     source_type: str = "abstract"
 
+    def metadata(self) -> Dict[str, Any]:
+        """Serializable run provenance, separate from loaded inference objects."""
+        return {"detector": type(self).__name__, "detector_source": self.source_type,
+                "detector_settings": vars(self).copy(),
+                "detector_accuracy_status": "real_video_unmeasured"}
+
     @abstractmethod
     def detect(
         self,
@@ -279,4 +285,3 @@ class FixturePlayerDetector(BasePlayerDetector):
             sideline_v_bounds_px=sideline_v_bounds_px,
             extra_metadata=metas,
         )
-
