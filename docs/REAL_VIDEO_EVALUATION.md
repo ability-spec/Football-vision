@@ -28,8 +28,42 @@ Cut detection is heuristic; see [architecture risks](ARCHITECTURE_RISKS.md) for 
 and the constraints on longer clips, timestamps and future parallel processing.
 The runner has **no annotation input**. It uses the untrained turf-contrast detector and
 relative calibration; no absolute field origin is inferred from labels.
+Use `--detector yolox --weights models/yolox_tiny.onnx` to select the supported
+pretrained COCO person detector. See [the learned-detector guide](LEARNED_DETECTOR.md)
+for the exact model profile, download/hash and its player/referee limitations.
+The same flags are accepted by the full report workflow. Compare both detectors
+using identical source-video hashes and independent labels; a pretrained model is
+not evidence of football accuracy.
 
 ## Review the saved observations
+
+For small-player development experiments, both runners accept
+`--detector yolox-tiled` with the same verified local weights. This increases
+CPU work and keeps the same confidence threshold. Use independent whole-player
+boxes to measure localization quality and false positives.
+
+### Native NFL Helmet Assignment diagnostics
+
+Owner-supplied Kaggle helmet labels must remain separate from the whole-player
+annotation schema. The native reader converts frame 1 to decoded frame 0;
+sideline labels are excluded from coverage diagnostics. Sensor positions retain
+their native coordinate system and are not automatically aligned to video.
+
+From the repository root, reproduce the paired-mode development comparison:
+
+```bash
+python -m benchmarks.compare_nfl_detectors clip_Sideline.mp4 clip_Endzone.mp4 --helmets train_labels.csv --weights models/yolox_tiny.onnx --out outputs/detector-comparison
+```
+
+The output directory must be new. Six decoded frames per clip are selected
+deterministically; both modes receive identical original frames. Outputs include
+video and label hashes, model settings, original-coordinate boxes, per-frame
+diagnostics, local inference times, a Markdown report and a labeled preview.
+One-to-one helmet-center containment prevents a single large box from receiving
+credit for several helmets, but is not whole-player recall, precision or AP.
+All inspected clips are development data. Group different views of a play
+together; use unseen games for held-out evaluation. The competition's public
+test videos can duplicate training plays.
 
 Render the decoded prediction window with synchronized boxes and a top-down view:
 
@@ -76,7 +110,17 @@ estimation, which may refuse when measured trajectory evidence is insufficient.
 No snap is invented in that case. No play is inferred without a manual start.
 
 Team assignments and offensive direction are not inferred by this workflow;
-team-dependent metrics remain unavailable. Null geometry metrics mean unavailable
+automatic exports record `offense_direction: null`. Forward displacement/depth
+and directional defensive-box counts stay unavailable without an explicit
+direction. Longitudinal/lateral displacement, path length and spacing can still
+be measured without deciding which direction is toward the opponent's end zone.
+Team-dependent metrics remain unavailable. `observed_track_count` counts
+image-space tracks even when calibration
+refuses; `measured_track_count` counts only tracks with accepted field positions.
+Neither is a count of unique athletes or all players on the field. Previous MVP
+artifacts used `observed_track_count` for the narrower field-position population;
+use each artifact's metric definition and pipeline hash when comparing old runs.
+Null geometry metrics mean unavailable
 evidence, not perfect accuracy or zero distance. In particular, pre-snap motion
 count requires at least one
 consecutive pair of accepted pre-snap positions: post-snap-only tracks do not
@@ -87,6 +131,28 @@ The source-video hash in the output binds the results to the analyzed clip;
 users must ensure the supplied timestamps belong to that clip.
 
 ## Prepare independent labels
+
+Extract exact source frames and a template before running perception:
+
+```bash
+python -m football_vision.evaluation.prepare /path/to/clip.mp4 --frames 0 30 60 --source-kind real --split dev --out outputs/manual-labels
+```
+
+Choose zero-based frame IDs that exist in the clip; frames are decoded sequentially
+using the same indexing as the video runner. The new directory contains lossless,
+unscaled `frame_XXXXXXXX.png` images, `annotations.json` with video hash and decoder
+metadata, and editing instructions. An existing output is never overwritten. If a
+requested frame cannot be decoded or an image cannot be written, partial output is removed.
+
+The template sets every frame to `exhaustive: false` and its annotation method to
+`pending_manual`. Review every PNG at its original pixel dimensions, add all visible
+player boxes and stable manual IDs, and mark only completed frames exhaustive. After
+independent manual completion, change `annotation_method` to `independent_manual`.
+The scorer rejects pending templates; empty lists are not completed negative labels.
+Field positions remain optional and require independent landmark evidence. The tool
+does not run a detector or create ground-truth player positions. Select frames from
+the processed prediction window to measure coverage meaningfully; use denser sequences
+when assessing tracking, since sparse images cannot resolve all identity changes.
 
 1. Select development and held-out test clips **by game/camera source**, not adjacent frames
    of one clip. Record motion, cuts, zoom, occlusion, lighting and crowd density strata.
