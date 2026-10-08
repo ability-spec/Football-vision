@@ -25,7 +25,12 @@ Open `outputs/my-run/report.html` for play metrics and artifact links. Each run 
 `analysis.json` (predictions, trajectories, segmentation, analytics and provenance),
 `metrics.csv`, `review.avi` (synchronized boxes, field view and play phase),
 `preview.png` (sampled frames viewable without video playback), `report.html`,
-and `manifest.json` (artifact hashes). Use a new output directory
+`report.md` (readable text and metric tables),
+and `manifest.json` (artifact hashes). `bundle.zip` packages all those artifacts
+with opening instructions. If an embedded HTML viewer blocks the report, download
+the ZIP, extract all files into one folder, and open `report.html` in your browser.
+Open `preview.png` directly for still frames or `review.avi` in a video player for motion.
+Use a new output directory
 for each run; previous results are never overwritten. Failed export attempts remove
 their own incomplete output. No model download, GPU or external service is required.
 CSV includes metric source, confidence and limitations. Unavailable values remain blank;
@@ -38,6 +43,39 @@ estimation; insufficient evidence produces a documented refusal. Unknown geometr
 team roles and possession events remain unavailable. The demo tests integration,
 not football accuracy; the untrained CPU detector is a research baseline. Real-video
 accuracy requires independent labeled footage using [the evaluation protocol](docs/REAL_VIDEO_EVALUATION.md).
+
+Prepare selected frames for independent manual evaluation:
+
+```bash
+python -m football_vision.evaluation.prepare clip.mp4 --frames 0 30 60 --source-kind real --split dev --out outputs/manual-labels
+```
+
+This creates original-size PNGs and a pending annotation template; follow its editing
+instructions before scoring. See [MVP completion criteria](docs/MVP_COMPLETION.md) for
+what is implemented, what needs real data, and the next scope decision.
+
+For learned person detection, download the verified local weights described in
+[the YOLOX guide](docs/LEARNED_DETECTOR.md), then use the same workflow:
+
+```bash
+python -m football_vision clip.mp4 --plays plays.json --source-kind real --detector yolox --weights models/yolox_tiny.onnx --out outputs/learned-run
+```
+
+YOLOX-Tiny runs on CPU through OpenCV; it is pretrained on COCO people, not
+fine-tuned for football. Player/referee/spectator separation and football accuracy
+remain unvalidated. Model hashes and preprocessing profiles are recorded in results.
+
+For small players, replace `--detector yolox` with `--detector yolox-tiled`.
+This adds four overlapping crops and global duplicate suppression, at up to five
+model passes per frame. Both commands accept `--opencv-threads` (default: 2).
+Native helmet-center coverage improved on the supplied development clips; this
+does not establish player precision/recall or stable tracking identity. See
+[the first real-video review](docs/NFL_INITIAL_REVIEW.md).
+
+The Markdown and HTML reports expose observation diagnostics and boundary
+refusals. Track IDs are not counts of unique athletes; projectable frames are
+not proof of accurate field coordinates. The current learned workflow is offline,
+not a real-time 60-FPS system.
 
 ---
 
@@ -56,8 +94,10 @@ video processing, play analytics, exports and synchronized review. See
 **The benchmark numbers below are frozen historical results, not measurements of 0.4.1.**
 Real multi-frame detection/tracking accuracy remains unmeasured. Analytics includes play
 segmentation, observed formation/route geometry, scoped events and play metrics. The CPU MVP
-connects these to video processing and synchronized review; validated learned perception,
-ball/possession analysis and a browser-based synchronized player remain future work.
+connects these to video processing and synchronized review. A pretrained YOLOX-Tiny
+person detector is integrated as an optional local ONNX model. Real-game validation,
+football fine-tuning if needed, ball/possession analysis and a browser-based synchronized
+player remain future work.
 
 
 - **Validated Core (`football_vision/calibration/`):**
@@ -126,8 +166,8 @@ Football-Vision/
 │   ├── identity/         # Phase 3 torso appearance cluster assignment
 │   ├── projection/       # Phase 3 gated field projection
 │   ├── trajectory/       # Phase 4 field-space trajectories, kinematics, uncertainty
-│   ├── analytics/        # Phase 10 play segmentation (11-14 not implemented)
-│   │   └── segmentation.py
+│   ├── analytics/        # Play segmentation, observed geometry, scoped events and metrics
+│   ├── evaluation/       # Manual boundaries, source-frame extraction and video predictions
 │   └── visualization/
 ├── experimental/
 │   └── cpu_blob_detector.py
@@ -166,7 +206,7 @@ source .venv/bin/activate  # Windows PowerShell: .venv\Scripts\Activate.ps1
 python -m pip install -e ".[dev]"
 python -m pip check
 
-# Run the full unit & integration test suite (Phases 0-4)
+# Run the full unit & integration test suite
 python3 -m pytest -v
 
 # Reproduce benchmarks / figures

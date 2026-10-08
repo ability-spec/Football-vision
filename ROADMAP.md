@@ -14,6 +14,11 @@ manual play boundaries, JSON/CSV export, an HTML report, and synchronized AVI re
 This delivers a bounded research workflow, not completion of every original phase: validated
 learned player perception, ball/possession events, Parquet export, GPU profiling, and real-game
 accuracy evaluation remain open. The synthetic demo verifies integration only.
+The owner has selected learned detection as part of the MVP. The local workflow
+now supports official pretrained YOLOX-Tiny COCO person weights through OpenCV DNN
+on CPU, with a pinned artifact/preprocessing profile. This establishes model
+integration, not football-specific perception accuracy; validation and any required
+football fine-tuning remain open. See `docs/LEARNED_DETECTOR.md`.
 
 ---
 
