@@ -30,7 +30,7 @@ def analyze_formation(
     samples: Sequence[TrajectorySample], *, frame_id: int,
     team_by_track: Mapping[int, str], snap_frame: int,
     offense_team: str | None = None, defense_team: str | None = None,
-    line_of_scrimmage_x: float | None = None, offense_direction: int = 1,
+    line_of_scrimmage_x: float | None = None, offense_direction: int | None = 1,
     box_center_y: float | None = None, box_half_width_yd: float = 5.0,
     box_depth_yd: float = 5.0,
 ) -> FormationSnapshot:
@@ -42,8 +42,8 @@ def analyze_formation(
     """
     if frame_id < 0 or snap_frame < 0 or frame_id >= snap_frame:
         raise ValueError("formation frame must be nonnegative and strictly before snap")
-    if offense_direction not in (-1, 1):
-        raise ValueError("offense_direction must be -1 or 1")
+    if offense_direction is not None and (type(offense_direction) is not int or offense_direction not in (-1, 1)):
+        raise ValueError("offense_direction must be -1, 1 or None")
     for name, value in (("box_half_width_yd", box_half_width_yd), ("box_depth_yd", box_depth_yd)):
         if not math.isfinite(value) or value <= 0:
             raise ValueError(f"{name} must be finite and positive")
@@ -107,7 +107,8 @@ def analyze_formation(
         result.reason = "no_team_assignments"
         return result
     result.status = "available"
-    if defense_team in groups and line_of_scrimmage_x is not None and box_center_y is not None:
+    if (defense_team in groups and line_of_scrimmage_x is not None and box_center_y is not None
+            and offense_direction is not None):
         result.defensive_box_count = sum(
             0 <= offense_direction * (s.field_position[0] - line_of_scrimmage_x) <= box_depth_yd
             and abs(s.field_position[1] - box_center_y) <= box_half_width_yd

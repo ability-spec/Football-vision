@@ -83,3 +83,32 @@ def test_presnap_motion_does_not_bridge_coordinate_change():
         sample(0, (10, 10)), sample(1, (20, 10), coordinate_segment=1),
         sample(2, (21, 10), coordinate_segment=1), sample(3, (22, 10), coordinate_segment=1)])])
     assert result.metrics["presnap_motion_track_count"].value is None
+
+
+def test_image_observations_do_not_require_field_calibration():
+    observed = TrajectorySample(track_id=1, frame_id=1, timestamp_s=.1,
+                                geometry_state="unknown", x_coord_mode="uncalibrated",
+                                track_state="observed", image_footpoint=(50, 80))
+    coasted = TrajectorySample(track_id=2, frame_id=1, timestamp_s=.1,
+                               geometry_state="unknown", x_coord_mode="uncalibrated",
+                               track_state="coasted", image_footpoint=(70, 80))
+    outside = TrajectorySample(track_id=3, frame_id=4, timestamp_s=.4,
+                               geometry_state="unknown", x_coord_mode="uncalibrated",
+                               track_state="observed")
+    result = analyze_play(segment(), [trajectory([observed, coasted, outside])])
+    assert result.metrics["observed_track_count"].value == 1
+    assert result.metrics["observed_track_count"].source == "image_space_tracking"
+    assert result.metrics["measured_track_count"].value == 0
+    assert result.metrics["position_sample_coverage"].value == 0
+    assert result.metrics["observed_path_length_sum_yd"].value is None
+
+
+def test_unknown_direction_propagates_to_routes_and_formation():
+    result = analyze_play(segment(snap_frame=2), [trajectory([
+        sample(0, (10, 10)), sample(1, (11, 10)), sample(2, (12, 10)), sample(3, (13, 10))])],
+        team_by_track={1: "home"}, offense_direction=None)
+    assert result.provenance["offense_direction"] is None
+    assert result.formation["provenance"]["offense_direction"] is None
+    assert result.routes[0]["segments"][0]["forward_displacement_yd"] is None
+    assert result.metrics["observed_path_length_sum_yd"].value == 3
+    assert result.metrics["presnap_motion_track_count"].value == 1

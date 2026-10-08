@@ -61,3 +61,14 @@ def test_input_validation():
         analyze_formation([], frame_id=2, snap_frame=2, team_by_track={})
     with pytest.raises(ValueError):
         analyze([], box_depth_yd=float("nan"))
+
+
+def test_unknown_direction_preserves_spacing_but_not_defensive_box():
+    r = analyze([sample(1, (40, 20)), sample(2, (43, 24)), sample(3, (45, 25))],
+                offense_team="O", defense_team="D", line_of_scrimmage_x=40,
+                box_center_y=20, offense_direction=None)
+    assert r.status == "available"
+    assert r.teams["O"]["width_yd"] == 4
+    assert r.teams["O"]["depth_yd"] == 3
+    assert r.defensive_box_count is None
+    assert r.provenance["offense_direction"] is None

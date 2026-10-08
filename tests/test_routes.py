@@ -62,3 +62,16 @@ def test_invalid_inputs():
         run([], stem_dominance_ratio=1)
     with pytest.raises(ValueError):
         run([], defender_samples=[s(0, (1, 1))])
+
+
+def test_unknown_offense_direction_preserves_geometry_without_forward_claims():
+    r = run([s(0, (10, 0)), s(1, (7, 4))], offense_direction=None)
+    part = r.segments[0]
+    assert r.status == "available"
+    assert r.provenance["offense_direction"] is None
+    assert part["distance_yd"] == 5
+    assert part["longitudinal_displacement_yd"] == -3
+    assert part["lateral_displacement_yd"] == 4
+    assert part["forward_displacement_yd"] is None
+    assert part["max_forward_depth_yd"] is None
+    json.dumps(r.to_dict(), allow_nan=False)

@@ -38,7 +38,7 @@ class RouteAnalysis:
 def analyze_route(
     samples: Sequence[TrajectorySample], *, track_id: int,
     start_frame: int, end_frame: int, snap_frame: int,
-    offense_direction: int = 1,
+    offense_direction: int | None = 1,
     defender_samples: Sequence[TrajectorySample] = (),
     crossing_y: float | None = None, stem_min_displacement_yd: float = 1.0,
     stem_dominance_ratio: float = 2.0,
@@ -47,12 +47,14 @@ def analyze_route(
 
     Defenders are explicit caller-selected tracks, not inferred player roles.
     Depth is forward displacement from each continuous segment's first sample.
+    An unknown direction leaves forward metrics unavailable; unsigned path
+    length and axis-based movement remain measurable.
     Separation uses same-frame, same-coordinate, same-timestamp measurements.
     """
     if not 0 <= start_frame <= end_frame or snap_frame < 0:
         raise ValueError("invalid frame window or snap")
-    if offense_direction not in (-1, 1):
-        raise ValueError("offense_direction must be -1 or 1")
+    if offense_direction is not None and (type(offense_direction) is not int or offense_direction not in (-1, 1)):
+        raise ValueError("offense_direction must be -1, 1 or None")
     if not math.isfinite(stem_min_displacement_yd) or stem_min_displacement_yd <= 0:
         raise ValueError("stem minimum must be finite and positive")
     if not math.isfinite(stem_dominance_ratio) or stem_dominance_ratio <= 1:
@@ -108,8 +110,9 @@ def analyze_route(
     for run in runs:
         first, last = run[0], run[-1]
         x0, y0 = first.field_position
-        forward = [offense_direction * (s.field_position[0] - x0) for s in run]
-        dx, dy = forward[-1], last.field_position[1] - y0
+        longitudinal = [s.field_position[0] - x0 for s in run]
+        forward = [offense_direction * x for x in longitudinal] if offense_direction is not None else None
+        dx, dy = longitudinal[-1], last.field_position[1] - y0
         stem = "unknown"
         if len(run) > 1:
             if max(abs(dx), abs(dy)) < stem_min_displacement_yd:
@@ -132,8 +135,10 @@ def analyze_route(
             "coordinate_segment": first.coordinate_segment, "x_coord_mode": first.x_coord_mode,
             "n_observations": len(run), "n_edges": len(edges),
             "duration_s": last.timestamp_s - first.timestamp_s,
-            "forward_displacement_yd": dx, "lateral_displacement_yd": dy,
-            "max_forward_depth_yd": max(forward), "net_stem": stem,
+            "longitudinal_displacement_yd": dx,
+            "forward_displacement_yd": forward[-1] if forward is not None else None,
+            "lateral_displacement_yd": dy,
+            "max_forward_depth_yd": max(forward) if forward is not None else None, "net_stem": stem,
             "distance_yd": sum(math.dist(a.field_position, b.field_position) for a, b in edges),
             "presnap_n_edges": len(presnap_edges),
             "presnap_distance_yd": sum(math.dist(a.field_position, b.field_position)

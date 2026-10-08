@@ -39,12 +39,12 @@ class PlayAnalysis:
 def analyze_play(segment: PlaySegment, trajectories: Sequence[FieldTrajectory], *,
                  team_by_track: Mapping[int, str] | None = None,
                  offense_team: str | None = None, defense_team: str | None = None,
-                 offense_direction: int = 1, line_of_scrimmage_x: float | None = None,
+                 offense_direction: int | None = 1, line_of_scrimmage_x: float | None = None,
                  box_center_y: float | None = None, crossing_y: float | None = None) -> PlayAnalysis:
     if not math.isfinite(segment.fps) or segment.fps <= 0:
         raise ValueError("play fps must be finite and positive")
-    if offense_direction not in (-1, 1):
-        raise ValueError("offense_direction must be -1 or 1")
+    if offense_direction is not None and (type(offense_direction) is not int or offense_direction not in (-1, 1)):
+        raise ValueError("offense_direction must be -1, 1 or None")
     for value in (line_of_scrimmage_x, box_center_y, crossing_y):
         if value is not None and not math.isfinite(value):
             raise ValueError("geometry annotations must be finite")
@@ -64,7 +64,13 @@ def analyze_play(segment: PlaySegment, trajectories: Sequence[FieldTrajectory], 
     })
     def metric(name, value, units, definition, source="observed_measured_trajectory"):
         result.metrics[name] = MetricValue(value, units, definition, source)
-    metric("observed_track_count", len({s.track_id for s in usable}), "tracks", "Distinct tracks with accepted positions; not unique athletes")
+    observed = [s for s in samples if s.track_state == "observed"]
+    metric("observed_track_count", len({s.track_id for s in observed}), "tracks",
+           "Distinct tracks observed in image space during the play; independent of calibration; not unique athletes",
+           "image_space_tracking")
+    result.metrics["observed_track_count"].limitations = "detector/tracker baseline; identity accuracy unmeasured; not a count of all players"
+    metric("measured_track_count", len({s.track_id for s in usable}), "tracks",
+           "Distinct tracks with accepted measured field positions; not unique athletes")
     metric("measured_sample_count", len(usable), "samples", "Accepted observed measured positions")
     metric("position_sample_coverage", len(usable) / len(samples) if samples else None,
            "fraction", "Accepted measured positions / supplied trajectory samples; excludes unseen players")
