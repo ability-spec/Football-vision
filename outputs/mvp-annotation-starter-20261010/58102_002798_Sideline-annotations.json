@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "video_sha256": "4fcd1866cc3cd75efc0d161d42ee5ef296511f490dbc686e48a945c28ee8324b",
+  "source_kind": "real",
+  "split": "dev",
+  "annotation_method": "pending_manual",
+  "fps": 59.94005994005994,
+  "opencv_version": "5.0.0",
+  "frames": [
+    {
+      "frame_id": 10,
+      "image": "58102_002798_Sideline_frame_00000010.png",
+      "image_size": [
+        1280,
+        720
+      ],
+      "exhaustive": false,
+      "players": []
+    },
+    {
+      "frame_id": 183,
+      "image": "58102_002798_Sideline_frame_00000183.png",
+      "image_size": [
+        1280,
+        720
+      ],
+      "exhaustive": false,
+      "players": []
+    }
+  ]
+}

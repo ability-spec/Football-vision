@@ -1,0 +1,6 @@
+Source: NFL Health & Safety - Helmet Assignment, owner-supplied Kaggle competition footage.
+https://www.kaggle.com/competitions/nfl-health-and-safety-helmet-assignment
+Original decoded frames: play 58102_002798, Endzone and Sideline, zero-based frames 10 and 183.
+Third-party media is not covered by the Football-Vision code MIT license.
+Refer to the competition rules for applicable use and distribution terms; this package grants no additional rights.
+https://www.kaggle.com/competitions/nfl-health-and-safety-helmet-assignment/rules
