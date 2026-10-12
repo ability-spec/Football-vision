@@ -25,7 +25,8 @@ from football_vision.evaluation.labels import load_labels
 def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
               play_labels: list[PlayTimestampLabel] | None = None,
               game_id: str = "", two_stage_tracking: bool = False,
-              detector_kind: str = "turf", weights: Path | None = None) -> dict:
+              detector_kind: str = "turf", weights: Path | None = None,
+              include_detections: bool = False) -> dict:
     if source_kind not in ("real", "synthetic") or max_frames < 1:
         raise ValueError("source_kind must be real/synthetic; max_frames must be positive")
     detector = (create_player_detector(detector_kind, weights, min_confidence=0.1) if two_stage_tracking
@@ -74,11 +75,14 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
                         "coordinate_segment": s.coordinate_segment,
                     }
                 )
-            frames.append(
-                {"frame_id": fid, "players": players,
-                 "calibration_projectable": calibration.can_project(),
-                 "camera_cut_detected": calibration.camera_cut_detected}
-            )
+            record = {"frame_id": fid, "players": players,
+                      "calibration_projectable": calibration.can_project(),
+                      "camera_cut_detected": calibration.camera_cut_detected}
+            if include_detections:
+                # Evaluation consumes fresh detector output, never coasted tracks.
+                record["detections"] = [dict(bbox=list(d.bbox), confidence=float(d.confidence))
+                                        for d in detections]
+            frames.append(record)
         elapsed = time.perf_counter() - start
         code_hash = hashlib.sha256()
         package_root = Path(__file__).resolve().parents[1]

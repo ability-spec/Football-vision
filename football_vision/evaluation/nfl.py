@@ -10,8 +10,13 @@ from scipy.optimize import linear_sum_assignment
 import numpy as np
 
 
-def read_helmet_labels(path: Path, videos: dict[str, dict]) -> dict[str, dict[int, list[dict]]]:
-    """Convert one-based Kaggle frames to zero-based decoded frames explicitly."""
+def read_helmet_labels(path: Path, videos: dict[str, dict], *,
+                       require_selected_labels: bool = True) -> dict[str, dict[int, list[dict]]]:
+    """Convert one-based Kaggle frames; optionally allow wholly unlabeled clips.
+
+    Invalid selected rows are always rejected. Allowing absent rows does not
+    establish that their frames contain no players.
+    """
     result: dict[str, dict[int, list[dict]]] = {name: {} for name in videos}
     seen = set()
     required = {"video", "frame", "label", "left", "top", "width", "height", "isSidelinePlayer"}
@@ -43,7 +48,7 @@ def read_helmet_labels(path: Path, videos: dict[str, dict]) -> dict[str, dict[in
             entry = dict(player_id=row["label"], helmet_bbox=[left, top, left + width, top + height],
                          is_sideline_player=flag == "TRUE", source_frame=frame + 1)
             result[name].setdefault(frame, []).append(entry)
-    if any(not frames for frames in result.values()):
+    if require_selected_labels and any(not frames for frames in result.values()):
         raise ValueError("A selected video has no helmet labels")
     return result
 
