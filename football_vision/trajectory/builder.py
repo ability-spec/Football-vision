@@ -58,6 +58,7 @@ from football_vision.trajectory.outlier import (
     FieldJumpGate,
     GateDecision,
     ImageSpaceJumpGate,
+    REASON_FIELD_GATE,
     RejectionTracker,
 )
 from football_vision.trajectory.smoothing import (
@@ -383,10 +384,19 @@ class PlayerTrajectoryBuilder:
                         gate_statistic = float(decision.statistic)
                         gate_threshold = float(decision.threshold)
                     if decision.accepted:
-                        _, _, _, accepted = st.filter.update(
+                        _, _, filter_statistic, accepted = st.filter.update(
                             measured_xy, measurement_cov, reject_if_gated=not in_warmup
                         )
-                        assert accepted
+                        if not in_warmup or not accepted:
+                            gate_statistic = float(filter_statistic)
+                            gate_threshold = float(st.filter.gate_chi2_2dof)
+                        if not accepted:
+                            # Independent gate computations can disagree at the
+                            # threshold. The filter's final refusal must remain a
+                            # rejection, including when Python assertions are disabled.
+                            decision = GateDecision(False, gate_statistic, gate_threshold,
+                                                    REASON_FIELD_GATE)
+                    if decision.accepted:
                         st.rejections.register(False)
                         position = st.filter.position
                         position_cov = st.filter.position_covariance

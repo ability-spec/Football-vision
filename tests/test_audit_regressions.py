@@ -121,6 +121,40 @@ def test_rejections_do_not_reset_age_and_configured_limit_is_used():
         assert not z.reinitialized_after_rejections
 
 
+@pytest.mark.parametrize("reset_limit", [2, 100])
+def test_filter_gate_disagreement_preserves_rejection_and_recovery(monkeypatch, reset_limit):
+    from football_vision.trajectory.smoothing import ConstantVelocityFieldFilter
+    from football_vision.trajectory.outlier import REASON_FIELD_GATE
+
+    b = PlayerTrajectoryBuilder(gate_warmup_updates=0,
+                                max_consecutive_rejections=reset_limit, max_gap_frames=10)
+    geometry = cal(coordinate_id="field")
+    first = sample(b, 0, c=geometry)
+    # Force only the filter's gate across the threshold. The independent field
+    # gate still accepts this small movement; update must make the final decision.
+    monkeypatch.setattr(ConstantVelocityFieldFilter, "innovation_d2",
+                        lambda self, *args: self.gate_chi2_2dof + .01)
+    refused = sample(b, 1, x=10.1, c=geometry)
+    assert refused.is_outlier_rejected and not refused.is_measurement_used
+    assert refused.rejection_reason == REASON_FIELD_GATE
+    assert refused.field_position is None and refused.predicted_position is not None
+    assert refused.distance_cum_yd == first.distance_cum_yd
+    assert refused.frames_since_measurement == 1
+    assert refused.gate_statistic > refused.gate_threshold
+    assert b.measurements_rejected == 1
+
+    second = sample(b, 2, x=10.2, c=geometry)
+    assert b.measurements_rejected == 2
+    assert second.is_outlier_rejected
+    if reset_limit == 2:
+        assert second.reinitialized_after_rejections and second.is_measurement_used
+        assert second.field_position == (10.2, 20.) and second.predicted_position is None
+        assert second.frames_since_measurement == 0 and b.filter_reinitializations == 1
+    else:
+        assert not second.reinitialized_after_rejections and not second.is_measurement_used
+        assert second.frames_since_measurement == 2
+
+
 def test_tracker_expires_across_sparse_frame_ids():
     t = track(0)
     d = PlayerDetection(
