@@ -54,6 +54,10 @@ This creates original-size PNGs and a pending annotation template; follow its ed
 instructions before scoring. See [MVP completion criteria](docs/MVP_COMPLETION.md) for
 what is implemented, what needs real data, and the next scope decision.
 
+CVAT image exports can now be scored with `python -m football_vision.evaluation.cvat`.
+See the [manual player-box pilot](docs/MANUAL_DETECTION_PILOT.md) for the command,
+owner-confirmed four-frame detection results, and the remaining identity/field evidence.
+
 For learned person detection, download the verified local weights described in
 [the YOLOX guide](docs/LEARNED_DETECTOR.md), then use the same workflow:
 
@@ -71,6 +75,14 @@ model passes per frame. Both commands accept `--opencv-threads` (default: 2).
 Native helmet-center coverage improved on the supplied development clips; this
 does not establish player precision/recall or stable tracking identity. See
 [the first real-video review](docs/NFL_INITIAL_REVIEW.md).
+
+For several clips, use `python -m football_vision.evaluation.batch clips.json
+--out outputs/batch --max-frames 30 --detector yolox-tiled
+--weights models/yolox_tiny.onnx --opencv-threads 2`. The manifest names videos
+relative to its own directory; optional `--helmets train_labels.csv` adds native
+helmet-center diagnostics. The batch exports per-clip JSON, AVI and PNG plus a
+combined report and ZIP. It can review footage without inventing play boundaries;
+play analytics still use the workflow above. See [the batch guide](docs/BATCH_REVIEW.md).
 
 The Markdown and HTML reports expose observation diagnostics and boundary
 refusals. Track IDs are not counts of unique athletes; projectable frames are

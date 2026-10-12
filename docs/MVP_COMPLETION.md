@@ -18,25 +18,39 @@ fine-tuning remain unvalidated. See [the model guide](LEARNED_DETECTOR.md).
 | Results are inspectable and traceable | Video/source hashes, metric definitions, schema metadata, artifact hashes, HTML, PNG and AVI are exported. |
 | A user can prepare independent evaluation inputs | Frame-preparation command creates unscaled source PNGs and pending labels; the scorer refuses incomplete templates. |
 | Learned perception is integrated into the same workflow | Local YOLOX-Tiny ONNX weights run through OpenCV CPU; model identity/profile are recorded and no fallback or inference-time download occurs. |
-| Results on representative real footage are measured | Four real NFL clips from three plays are available locally; full decoding and sampled learned inference passed. Independent player labels and held-out footage are still needed. No real-game detection/tracking accuracy claim is currently supported. |
+| Multiple clips can be reviewed reproducibly | The [batch review command](BATCH_REVIEW.md) accepts a relative-path manifest, preserves source/model provenance, and exports per-clip reviews plus one downloadable report. Manual play boundaries are still required for play analytics. |
+| Results on representative real footage are measured | Twelve real NFL clips from seven games and seven plays are available locally. The additional eight clips contain 2,906 decoded frames and were reviewed with a fixed detector configuration. Native helmet-center diagnostics and a [four-frame manual player-box pilot](MANUAL_DETECTION_PILOT.md) are available; broader detection sampling, identity evaluation and final held-out footage are still needed. |
 | Detector quality satisfies a chosen use case | Requires user-agreed precision/recall, identity continuity and field-coverage goals. Measure the existing baseline first; choose learned perception scope using that evidence. |
 
 Passing software tests completes integration checks, not the last two criteria.
 
 ## Inputs needed from the project owner
 
-Initial real footage has been supplied: four Kaggle Helmet Assignment clips,
-including both views of play `58102_002798`. All are development material. See
+Real footage has been supplied: twelve Kaggle Helmet Assignment clips from
+seven distinct `gameKey` values and seven plays. The initial four cover three
+games and three plays, including both views of `58102_002798`; the additional
+eight cover four other games and four plays. All have now been inspected. See
 [the first review](NFL_INITIAL_REVIEW.md) for verified media properties and
-observed detector limitations. Additional footage should prioritize unseen games
-and the missing paired views; uploading clips does not complete independent labels.
+observed detector limitations and [the batch guide](BATCH_REVIEW.md) for the
+reproducible multi-clip workflow. Additional footage should prioritize unseen
+games; uploading clips does not complete independent labels.
 
 Native helmet and sensor labels have also been supplied. The native reader and
 reproducible comparison tool are implemented. Optional tiled inference improves
 sampled helmet-center coverage from 247 to 364 matches, without changing the
 person threshold. Both paired 366-frame clips complete the full workflow.
-Independent whole-player accuracy is still unmeasured; tracking fragmentation
-and unstable/unavailable field coordinates remain major product limitations.
+The owner-confirmed four-frame manual player-box pilot now measures sampled
+precision/recall: baseline 79.2%/54.5%, tiled 71.2%/67.5%, at IoU >= 0.5.
+This is development evidence, without a second-annotator audit or full-clip
+accuracy claim. Tracking fragmentation and unstable/unavailable field
+coordinates remain major product limitations.
+The existing local review of the additional eight clips recorded 40,171
+one-to-one helmet-center matches across 53,843 labeled on-field helmet
+instances. These are repeated frame instances, not unique players or player
+recall/AP. That earlier local report is separate from the public batch command.
+Its fixed-configuration review does not preserve an untouched holdout for
+later tuning: inspected clips become development material when their results
+inform changes. Keep both views of each play together and split by `gameKey`.
 See the footage review for exact evidence and refusals. Integration is working;
 the real-video quality acceptance criteria are not complete.
 
