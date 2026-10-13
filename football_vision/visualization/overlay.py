@@ -54,7 +54,7 @@ def render_frame(image: np.ndarray, record: Mapping, *, panel_width: int = 360,
                 and all(math.isfinite(v) for v in xy) and epoch is not None
                 and mode in ("absolute", "relative_10yd", "relative_5yd")):
             measured.append(player)
-            epochs.add((epoch, player.get("coordinate_segment", 0), mode))
+            epochs.add((epoch, mode))
     def label(text, y):
         cv2.putText(canvas, text, (width + 8, y), cv2.FONT_HERSHEY_SIMPLEX,
                     .4, (230, 230, 230), 1)
@@ -64,7 +64,7 @@ def render_frame(image: np.ndarray, record: Mapping, *, panel_width: int = 360,
     if not measured or len(epochs) != 1:
         label("Field unavailable" if not measured else "Mixed coordinate frames", 58)
         return canvas
-    mode = next(iter(epochs))[2]
+    mode = next(iter(epochs))[1]
     xs = [p["field_position"][0] for p in measured]
     lo, hi = (0., 100.) if mode == "absolute" else (x_bounds or (min(xs) - 5., max(xs) + 5.))
     label("Absolute field (yards)" if mode == "absolute" else "Relative field (local origin)", 58)

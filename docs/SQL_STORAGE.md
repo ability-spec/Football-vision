@@ -1,8 +1,11 @@
 # SQLite analysis storage
 
 No database server or additional Python dependency is required. Uses stdlib
-sqlite3. Storage schema v1 is application-tagged; unrelated databases and future
+sqlite3. Storage schema v2 is application-tagged; unrelated databases and future
 schema versions are refused rather than silently modified.
+Opening a v1 database for import automatically migrates its observation constraint
+in a transaction, preserving runs and historical `relative` records. Read-only
+reports support both v1 and v2 without migrating.
 
 ## Import and query
 
@@ -41,8 +44,11 @@ remains available and can be imported again without repeating inference.
 - plays: frame bounds and complete original play JSON, including metrics.
 
 Missing confidence in older exports remains NULL, not zero. A field measurement
-requires a real observation, relative/absolute coordinate mode and an explicit
-origin. Coordinates with different origins or segments must not be combined.
+requires a real observation, `relative_5yd`, `relative_10yd` or `absolute`
+coordinate mode and an explicit origin. Legacy `relative` input remains accepted.
+Coordinates with different origins must not be combined. Segment counters are
+local to a track: a change breaks its temporal continuity, while simultaneous
+positions from different tracks share axes through coordinate-frame ID and mode.
 No speed or distance query is offered without compatible measured geometry.
 
 Ingestion is one transaction per run: duplicate observations, invalid bounds
@@ -72,6 +78,6 @@ with sqlite3.connect("analysis.sqlite") as connection:
     )
 ```
 
-PostgreSQL, migrations beyond v1, automatic role classification and an accuracy
+PostgreSQL, migrations beyond v2, automatic role classification and an accuracy
 dashboard are later work. This implementation targets the recovered GitHub
 checkout; reconcile the earlier unpushed source archive separately.

@@ -156,6 +156,10 @@ class PlayerTracker:
         include_coasting_tracks: bool = True,
     ) -> List[PlayerTrack]:
         """Associate ``detections`` with active tracks and project reliable footpoints."""
+        if type(frame_id) is not int or frame_id < 0:
+            raise ValueError("frame_id must be a nonnegative integer")
+        if team_assignments is not None and len(team_assignments) != len(detections):
+            raise ValueError("team_assignments must match the number of detections")
         if self._last_frame_id is not None and frame_id <= self._last_frame_id:
             raise ValueError("frame_id must increase strictly")
         self._last_frame_id = int(frame_id)

@@ -37,8 +37,16 @@ def test_prediction_and_coasting_are_excluded():
 
 
 def test_coordinate_boundaries_refuse():
-    assert analyze([sample(1, (0, 0)), sample(2, (1, 1), coordinate_segment=1)]).reason == "ambiguous_coordinate_frame"
+    assert analyze([sample(1, (0, 0)), sample(2, (1, 1), coordinate_frame_id="other")]).reason == "ambiguous_coordinate_frame"
     assert analyze([sample(1, (0, 0), coordinate_frame_id=None)]).status == "unavailable"
+
+
+def test_track_local_segment_counters_do_not_hide_shared_geometry():
+    result = analyze([sample(1, (0, 0), coordinate_segment=3), sample(2, (3, 4))])
+    assert result.status == "available"
+    assert result.teams["O"]["mean_nearest_teammate_distance_yd"] == 5
+    assert result.coordinate_segment is None
+    assert result.provenance["coordinate_segment_by_track"] == {1: 3, 2: 0}
 
 
 def test_missing_team_and_box_annotations_are_unknown():

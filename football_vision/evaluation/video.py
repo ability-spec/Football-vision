@@ -27,8 +27,8 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
               game_id: str = "", two_stage_tracking: bool = False,
               detector_kind: str = "turf", weights: Path | None = None,
               include_detections: bool = False) -> dict:
-    if source_kind not in ("real", "synthetic") or max_frames < 1:
-        raise ValueError("source_kind must be real/synthetic; max_frames must be positive")
+    if source_kind not in ("real", "synthetic") or type(max_frames) is not int or max_frames < 1:
+        raise ValueError("source_kind must be real/synthetic; max_frames must be a positive integer")
     detector = (create_player_detector(detector_kind, weights, min_confidence=0.1) if two_stage_tracking
                 else create_player_detector(detector_kind, weights))
     digest = hashlib.sha256()
@@ -40,7 +40,10 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
         if not capture.isOpened():
             raise ValueError("Video could not be opened")
         fps = float(capture.get(cv2.CAP_PROP_FPS))
-        advertised_frames = int(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        advertised = float(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        if not np.isfinite(advertised) or advertised < 0:
+            raise ValueError("Video has no valid frame count")
+        advertised_frames = int(advertised)
         if not np.isfinite(fps) or fps <= 0:
             raise ValueError("Video has no valid frame rate")
         tracker = PlayerTracker(high_confidence_threshold=0.4 if two_stage_tracking else None)

@@ -144,7 +144,10 @@ class CalibrationResult:
             and _valid_homography(self.H)
             and _valid_homography(self.H_inv)
             and self.plausible_orientation_scale
+            and self.x_coord_mode in VALID_METRICS_BY_X_COORD_MODE
             and self.x_coord_mode != "uncalibrated"
+            and np.isfinite(self.confidence)
+            and 0.0 <= self.confidence <= 1.0
             and self.confidence >= min_confidence
         )
 
@@ -920,7 +923,7 @@ class PlaySegment:
                 raise ValueError("snap_frame follows end_frame")
         if (self.end_frame is None) != (self.end_source == "unavailable"):
             raise ValueError("end_frame and end_source must agree")
-        if float(self.fps) <= 0.0:
+        if not np.isfinite(float(self.fps)) or float(self.fps) <= 0.0:
             raise ValueError(f"fps must be positive, got {self.fps!r}")
         if self.snap_estimate is not None and self.snap_estimate.frame_id != self.snap_frame:
             raise ValueError("snap_estimate disagrees with snap_frame")

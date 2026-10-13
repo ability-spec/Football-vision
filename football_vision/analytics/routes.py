@@ -21,6 +21,11 @@ def _coordinate(s: TrajectorySample) -> tuple:
     return s.coordinate_frame_id, s.coordinate_segment, s.x_coord_mode
 
 
+def _shared_coordinate(s: TrajectorySample) -> tuple:
+    """Shared axes for different tracks; segment counters are local to a track."""
+    return s.coordinate_frame_id, s.x_coord_mode
+
+
 @dataclass
 class RouteAnalysis:
     track_id: int
@@ -97,7 +102,7 @@ def analyze_route(
             runs.append([])
         runs[-1].append(s)
         candidates = [d for d in defenders.get(s.frame_id, [])
-                      if _coordinate(d) == _coordinate(s)
+                      if _shared_coordinate(d) == _shared_coordinate(s)
                       and abs(d.timestamp_s - s.timestamp_s) <= 1e-6]
         nearest = min(candidates, key=lambda d: (math.dist(s.field_position, d.field_position), d.track_id)) if candidates else None
         result.separation.append({

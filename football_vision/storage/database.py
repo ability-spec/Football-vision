@@ -8,6 +8,13 @@ from pathlib import Path
 import re
 import sqlite3
 
+from football_vision.field_spec import VALID_METRICS_BY_X_COORD_MODE
+
+
+DATABASE_VERSION = 2
+APPLICATION_ID = 1179006513
+CALIBRATED_MODES = tuple(mode for mode in VALID_METRICS_BY_X_COORD_MODE if mode != "uncalibrated")
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS videos (
@@ -42,7 +49,7 @@ CREATE TABLE IF NOT EXISTS observations (
  CHECK(x2>x1 AND y2>y1),
  CHECK((field_x IS NULL)=(field_y IS NULL)),
  CHECK(field_x IS NULL OR (observed=1 AND coordinate_frame_id IS NOT NULL
-                         AND x_coord_mode IN ('relative','absolute')))
+                         AND x_coord_mode IN ('relative','relative_5yd','relative_10yd','absolute')))
 );
 CREATE INDEX IF NOT EXISTS observations_by_frame ON observations(run_id,frame_id);
 CREATE TABLE IF NOT EXISTS plays (
@@ -61,17 +68,25 @@ CREATE TABLE IF NOT EXISTS plays (
 
 
 def open_database(path: Path) -> sqlite3.Connection:
-    """Open schema version 1; reject databases belonging to another application."""
+    """Open the current schema, migrating version 1 without losing observations."""
     db = sqlite3.connect(path)
     try:
         db.execute("PRAGMA foreign_keys=ON")
         version = db.execute("PRAGMA user_version").fetchone()[0]
         app_id = db.execute("PRAGMA application_id").fetchone()[0]
         tables = db.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        if (version, app_id) != (1, 1179006513) and (version != 0 or app_id != 0 or tables):
+        if not (app_id == APPLICATION_ID and version in (1, DATABASE_VERSION)) and (version != 0 or app_id != 0 or tables):
             raise ValueError("unsupported or unrelated database schema")
+        if version == 1:
+            # SQLite cannot alter CHECK constraints. Rebuild only this child table
+            # inside one transaction; preserve historical 'relative' records.
+            observation_schema = SCHEMA.split("CREATE TABLE IF NOT EXISTS observations (", 1)[1].split(";", 1)[0]
+            db.executescript("BEGIN; CREATE TABLE observations_v2 (" + observation_schema + ";"
+                             "INSERT INTO observations_v2 SELECT * FROM observations;"
+                             "DROP TABLE observations; ALTER TABLE observations_v2 RENAME TO observations;"
+                             f"PRAGMA user_version={DATABASE_VERSION}; COMMIT;")
         db.executescript("BEGIN;" + SCHEMA +
-                         "PRAGMA user_version=1; PRAGMA application_id=1179006513; COMMIT;")
+                         f"PRAGMA user_version={DATABASE_VERSION}; PRAGMA application_id={APPLICATION_ID}; COMMIT;")
         db.row_factory = sqlite3.Row
         return db
     except BaseException:
@@ -136,7 +151,7 @@ def import_analysis(path: Path, document: dict) -> tuple[str, bool]:
                 mode = player.get("x_coord_mode")
                 origin = player.get("coordinate_frame_id")
                 if xy is not None:
-                    if not observed or mode not in ("relative", "absolute") or not isinstance(origin, str) or not origin:
+                    if not observed or mode not in (*CALIBRATED_MODES, "relative") or not isinstance(origin, str) or not origin:
                         raise ValueError("field position requires observed, calibrated coordinates with origin")
                     if not isinstance(xy, (list, tuple)) or len(xy) != 2:
                         raise ValueError("field_position requires two coordinates")
@@ -191,8 +206,8 @@ def report(path: Path, run_id: str, name: str) -> list[dict]:
         raise FileNotFoundError(path)
     with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
         db.row_factory = sqlite3.Row
-        if (db.execute("PRAGMA user_version").fetchone()[0],
-                db.execute("PRAGMA application_id").fetchone()[0]) != (1, 1179006513):
+        if (db.execute("PRAGMA user_version").fetchone()[0] not in (1, DATABASE_VERSION)
+                or db.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID):
             raise ValueError("unsupported or unrelated database schema")
         if not db.execute("SELECT 1 FROM analysis_runs WHERE run_id=?", (run_id,)).fetchone():
             raise ValueError("unknown run_id")

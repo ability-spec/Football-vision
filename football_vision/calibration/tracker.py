@@ -142,7 +142,8 @@ class CalibrationTracker:
         """Matrix-level update for backward compatibility; returns None if confidence < min_confidence."""
         if H_new is not None:
             obs_conf = 1.0 if confidence is None else float(confidence)
-            if obs_conf < self.min_confidence or not plausible_homography(H_new, frame_size):
+            if (not np.isfinite(obs_conf) or not 0 <= obs_conf <= 1
+                    or obs_conf < self.min_confidence or not plausible_homography(H_new, frame_size)):
                 return self._decay_matrix_only(frame_size)
             H_new = H_new / H_new[2, 2]
             if self.H is None or self._jump_yd(self.H, H_new, frame_size) > self.max_jump_yd:
@@ -191,6 +192,11 @@ class CalibrationTracker:
             curr_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             curr_turf = cv2.inRange(hsv, (28, 25, 40), (88, 255, 255))
+
+            # Pixel coordinates and optical-flow pyramids cannot be shared across
+            # resolutions, even when the color histograms look identical.
+            if self._prev_gray is not None and self._prev_gray.shape != curr_gray.shape:
+                is_cut = True
 
             if self._prev_hist is not None:
                 corr = float(cv2.compareHist(self._prev_hist, curr_hist, cv2.HISTCMP_CORREL))

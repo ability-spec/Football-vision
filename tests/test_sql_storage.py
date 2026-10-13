@@ -6,6 +6,7 @@ import sqlite3
 import pytest
 
 from football_vision.storage import import_analysis, open_database, report
+from football_vision.storage.database import SCHEMA
 
 
 def document():
@@ -88,3 +89,43 @@ def test_missing_observed_flag_is_not_guessed(tmp_path):
     del doc["frames"][0]["players"][0]["observed"]
     with pytest.raises(ValueError, match="observed"):
         import_analysis(tmp_path / "analysis.sqlite", doc)
+
+
+@pytest.mark.parametrize("mode", ["relative_5yd", "relative_10yd", "absolute"])
+def test_pipeline_coordinate_modes_roundtrip(tmp_path, mode):
+    doc = document()
+    for frame in doc["frames"]:
+        for player in frame["players"]:
+            player["x_coord_mode"] = mode
+    path = tmp_path / "analysis.sqlite"
+    run, _ = import_analysis(path, doc)
+    assert report(path, run, "coverage")[0]["field_records"] == 1
+    with open_database(path) as db:
+        assert db.execute("SELECT x_coord_mode FROM observations WHERE observed=1").fetchone()[0] == mode
+
+
+def test_version_one_migration_preserves_existing_runs(tmp_path):
+    path = tmp_path / "old.sqlite"
+    old_schema = SCHEMA.replace("'relative','relative_5yd','relative_10yd','absolute'", "'relative','absolute'")
+    with sqlite3.connect(path) as db:
+        db.executescript(old_schema + "PRAGMA user_version=1; PRAGMA application_id=1179006513;")
+        db.execute("INSERT INTO videos VALUES (?)", ("a" * 64,))
+        db.execute("INSERT INTO analysis_runs (run_id,video_sha256,fps,source_kind,analysis_json) VALUES (?,?,?,?,?)",
+                   ("old", "a" * 64, 30, "synthetic", "{}"))
+        db.execute("INSERT INTO frames VALUES ('old',0)")
+        db.execute("INSERT INTO tracks VALUES ('old',1)")
+        db.execute("INSERT INTO observations VALUES ('old',1,0,1,10,20,30,80,.9,5,10,'relative','camera-0',0)")
+    # Read-only reports remain available without mutating a legacy database.
+    assert report(path, "old", "coverage")[0]["field_records"] == 1
+    doc = document()
+    doc["frames"][0]["players"][0]["x_coord_mode"] = "relative_10yd"
+    run, _ = import_analysis(path, doc)
+    assert report(path, "old", "tracks")[0]["observed_frames"] == 1
+    assert len(report(path, run, "runs")) == 2
+    db = open_database(path)
+    try:
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert db.execute("SELECT name FROM sqlite_master WHERE name='observations_by_frame'").fetchone()
+    finally:
+        db.close()

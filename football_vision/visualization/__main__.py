@@ -32,7 +32,7 @@ def render_video(video: Path, predictions: Path, output: Path) -> int:
                     and all(math.isfinite(v) for v in xy)
                     and player.get("coordinate_frame_id") is not None
                     and mode in ("relative_5yd", "relative_10yd")):
-                key = (player["coordinate_frame_id"], player.get("coordinate_segment", 0), mode)
+                key = (player["coordinate_frame_id"], mode)
                 lo, hi = windows.get(key, (xy[0] - 5., xy[0] + 5.))
                 windows[key] = min(lo, xy[0] - 5.), max(hi, xy[0] + 5.)
     capture = cv2.VideoCapture(str(video))
@@ -51,7 +51,7 @@ def render_video(video: Path, predictions: Path, output: Path) -> int:
             ok, image = capture.read()
             if not ok:
                 raise ValueError("video ended before prediction frames")
-            keys = {(p.get("coordinate_frame_id"), p.get("coordinate_segment", 0), p.get("x_coord_mode"))
+            keys = {(p.get("coordinate_frame_id"), p.get("x_coord_mode"))
                     for p in record["players"] if p.get("observed", True) and p.get("field_position") is not None}
             relative_keys = keys & windows.keys()
             bounds = windows[next(iter(relative_keys))] if len(relative_keys) == 1 else None

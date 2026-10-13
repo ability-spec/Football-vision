@@ -37,6 +37,14 @@ def test_relative_position_uses_local_window_and_invalid_box_is_refused():
         render_frame(image, dict(frame_id=0, players=[dict(a, bbox=[0, 0, 0, 1])]))
 
 
+def test_shared_field_is_rendered_with_different_track_local_segments():
+    image = np.zeros((160, 200, 3), dtype=np.uint8)
+    a = dict(player(), coordinate_segment=3)
+    b = dict(a, track_id=2, coordinate_segment=0, field_position=[30, 15])
+    out = render_frame(image, dict(frame_id=0, players=[a, b]))
+    assert np.any(np.all(out[72:, 216:] == [30, 100, 30], axis=2))
+
+
 def test_video_render_round_trip_and_source_protection(tmp_path):
     import cv2
     import hashlib

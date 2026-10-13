@@ -62,7 +62,9 @@ class FieldProjector:
             reason = footpoint_estimate.unreliable_reason or "unreliable_footpoint"
             return None, f"footpoint_unreliable:{reason}"
 
-        if footpoint_estimate.confidence < self.min_footpoint_confidence:
+        if (not np.isfinite(footpoint_estimate.confidence)
+                or not 0.0 <= footpoint_estimate.confidence <= 1.0
+                or footpoint_estimate.confidence < self.min_footpoint_confidence):
             return None, "footpoint_unreliable:low_footpoint_confidence"
 
         pts_yd = calibration.image_to_field([[footpoint_estimate.u_px, footpoint_estimate.v_px]])

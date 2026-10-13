@@ -221,6 +221,10 @@ class PlayerTrajectoryBuilder:
         calibration: Optional[CalibrationResult],
     ) -> List[TrajectorySample]:
         """Ingest one frame of Phase 3 tracks and emit one trajectory sample per track."""
+        if type(frame_id) is not int or frame_id < 0:
+            raise ValueError("frame_id must be a nonnegative integer")
+        if len({track.track_id for track in tracks}) != len(tracks):
+            raise ValueError("duplicate track IDs in frame")
         if self._last_frame_id is not None and frame_id <= self._last_frame_id:
             raise ValueError("frame_id must increase strictly")
         self._last_frame_id = int(frame_id)

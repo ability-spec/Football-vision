@@ -42,11 +42,16 @@ def test_coasting_and_predictions_excluded():
 
 def test_separation_requires_same_frame_coordinates_and_timestamp():
     r = run([s(0, (0, 0)), s(1, (1, 0))], defender_samples=[
-        s(0, (3, 4), track=2), s(0, (0, 0), track=3, coordinate_segment=1),
+        s(0, (3, 4), track=2), s(0, (0, 0), track=3, coordinate_frame_id="other"),
         s(1, (1, 0), track=2, timestamp_s=5)])
     assert r.separation[0]["distance_yd"] == 5
     assert r.separation[0]["nearest_defender_track_id"] == 2
     assert r.separation[1]["distance_yd"] is None
+
+
+def test_separation_uses_shared_axes_despite_track_local_segments():
+    result = run([s(0, (0, 0), coordinate_segment=3)], defender_samples=[s(0, (3, 4), track=2)])
+    assert result.separation[0]["distance_yd"] == 5
 
 
 def test_crossing_vs_touch_and_lateral_stem():

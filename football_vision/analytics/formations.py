@@ -6,6 +6,7 @@ import math
 from typing import Mapping, Sequence
 
 from football_vision.schema import TrajectorySample
+from football_vision.analytics.routes import _shared_coordinate
 
 
 @dataclass
@@ -80,11 +81,14 @@ def analyze_formation(
     if not usable:
         result.reason = "no_measured_positions"
         return result
-    coordinates = {(s.coordinate_frame_id, s.coordinate_segment, s.x_coord_mode) for s in usable}
+    coordinates = {_shared_coordinate(s) for s in usable}
     if len(coordinates) != 1 or usable[0].coordinate_frame_id is None:
         result.reason = "ambiguous_coordinate_frame"
         return result
-    result.coordinate_frame_id, result.coordinate_segment, result.x_coord_mode = next(iter(coordinates))
+    result.coordinate_frame_id, result.x_coord_mode = next(iter(coordinates))
+    segments = {s.coordinate_segment for s in usable}
+    result.coordinate_segment = next(iter(segments)) if len(segments) == 1 else None
+    result.provenance["coordinate_segment_by_track"] = {s.track_id: s.coordinate_segment for s in usable}
     groups: dict[str, list[TrajectorySample]] = {}
     for s in usable:
         team = team_by_track.get(s.track_id)
