@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -10,6 +9,8 @@ from typing import Sequence
 
 import cv2
 import numpy as np
+
+from football_vision.evaluation import provenance
 
 
 def prepare_annotations(video: Path, output: Path, frame_ids: Sequence[int], *,
@@ -24,10 +25,7 @@ def prepare_annotations(video: Path, output: Path, frame_ids: Sequence[int], *,
     if output.exists():
         raise FileExistsError(output)
     selected = set(frame_ids)
-    digest = hashlib.sha256()
-    with video.open("rb") as file:
-        for chunk in iter(lambda: file.read(1024 * 1024), b""):
-            digest.update(chunk)
+    source_hash = provenance.sha256_file(video)
     capture = cv2.VideoCapture(str(video))
     try:
         if not capture.isOpened():
@@ -50,7 +48,9 @@ def prepare_annotations(video: Path, output: Path, frame_ids: Sequence[int], *,
                 frames.append(dict(frame_id=fid, image=filename,
                                    image_size=[image.shape[1], image.shape[0]],
                                    exhaustive=False, players=[]))
-            document = dict(schema_version=1, video_sha256=digest.hexdigest(),
+            if provenance.sha256_file(video) != source_hash:
+                raise ValueError("Video changed during decoding")
+            document = dict(schema_version=1, video_sha256=source_hash,
                             source_kind=source_kind, split=split,
                             annotation_method="pending_manual", fps=fps,
                             opencv_version=cv2.__version__, frames=frames)

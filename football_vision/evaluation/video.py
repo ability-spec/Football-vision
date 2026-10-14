@@ -20,6 +20,7 @@ from football_vision.trajectory.builder import PlayerTrajectoryBuilder
 from football_vision.analytics import PlaySegmenter, analyze_play
 from football_vision.schema import PlayTimestampLabel
 from football_vision.evaluation.labels import load_labels
+from football_vision.evaluation import provenance
 
 
 def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
@@ -31,10 +32,7 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
         raise ValueError("source_kind must be real/synthetic; max_frames must be a positive integer")
     detector = (create_player_detector(detector_kind, weights, min_confidence=0.1) if two_stage_tracking
                 else create_player_detector(detector_kind, weights))
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            digest.update(chunk)
+    source_hash = provenance.sha256_file(path)
     capture = cv2.VideoCapture(str(path))
     try:
         if not capture.isOpened():
@@ -87,6 +85,8 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
                                         for d in detections]
             frames.append(record)
         elapsed = time.perf_counter() - start
+        if provenance.sha256_file(path) != source_hash:
+            raise ValueError("Video changed during decoding")
         code_hash = hashlib.sha256()
         package_root = Path(__file__).resolve().parents[1]
         for source in sorted(package_root.rglob("*.py")):
@@ -96,7 +96,7 @@ def run_video(path: Path, *, source_kind: str, max_frames: int = 300,
             "schema_version": 1,
             "package_version": __version__,
             "source_kind": source_kind,
-            "video_sha256": digest.hexdigest(),
+            "video_sha256": source_hash,
             "pipeline_sha256": code_hash.hexdigest(),
             "opencv_version": cv2.__version__,
             "numpy_version": np.__version__,

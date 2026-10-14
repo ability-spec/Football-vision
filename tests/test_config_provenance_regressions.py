@@ -1,7 +1,11 @@
 """Configuration and provenance regression tests from post-review hardening."""
 
+import cv2
+import numpy as np
 import pytest
 
+from football_vision.evaluation.prepare import prepare_annotations
+from football_vision.evaluation.video import run_video
 from football_vision.tracking.tracker import PlayerTracker
 from football_vision.trajectory.kinematics import acceleration_from_velocity, clip_speed
 from football_vision.trajectory.smoothing import ConstantVelocityFieldFilter
@@ -78,3 +82,33 @@ def test_acceleration_rejects_invalid_dt(bad):
 def test_filter_rejects_invalid_numeric_configuration(kwargs):
     with pytest.raises(ValueError):
         ConstantVelocityFieldFilter(**kwargs)
+
+
+def _write_tiny_video(path):
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), 10.0, (96, 96))
+    assert writer.isOpened()
+    try:
+        for _ in range(2):
+            writer.write(np.full((96, 96, 3), (30, 140, 30), dtype=np.uint8))
+    finally:
+        writer.release()
+
+
+def test_video_runner_refuses_source_change_during_decode(tmp_path, monkeypatch):
+    video = tmp_path / "source.avi"
+    _write_tiny_video(video)
+    hashes = iter(["a" * 64, "b" * 64])
+    monkeypatch.setattr("football_vision.evaluation.provenance.sha256_file", lambda path: next(hashes))
+    with pytest.raises(ValueError, match="changed during decoding"):
+        run_video(video, source_kind="synthetic")
+
+
+def test_annotation_preparation_refuses_source_change_and_cleans_output(tmp_path, monkeypatch):
+    video = tmp_path / "source.avi"
+    output = tmp_path / "labels"
+    _write_tiny_video(video)
+    hashes = iter(["a" * 64, "b" * 64])
+    monkeypatch.setattr("football_vision.evaluation.provenance.sha256_file", lambda path: next(hashes))
+    with pytest.raises(ValueError, match="changed during decoding"):
+        prepare_annotations(video, output, [0], source_kind="synthetic", split="dev")
+    assert not output.exists()
