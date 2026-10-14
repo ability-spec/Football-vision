@@ -116,12 +116,35 @@ class PlayerTracker:
         recovery_min_hits: int = 3,
         projector: Optional[FieldProjector] = None,
     ) -> None:
-        self.max_missed_frames = int(max_missed_frames)
-        self.min_iou_threshold = float(min_iou_threshold)
-        self.max_center_distance_px = float(max_center_distance_px)
-        self.min_match_score = float(min_match_score)
-        self.min_init_confidence = float(min_init_confidence)
-        self.velocity_smoothing = float(velocity_smoothing)
+        if type(max_missed_frames) is not int or max_missed_frames < 0:
+            raise ValueError("max_missed_frames must be a nonnegative integer")
+
+        def _finite_number(name: str, value: float) -> float:
+            if isinstance(value, (bool, str, bytes)):
+                raise ValueError(f"{name} must be a finite number")
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{name} must be a finite number") from exc
+            if not np.isfinite(numeric):
+                raise ValueError(f"{name} must be a finite number")
+            return numeric
+
+        min_iou = _finite_number("min_iou_threshold", min_iou_threshold)
+        center_distance = _finite_number("max_center_distance_px", max_center_distance_px)
+        match_score = _finite_number("min_match_score", min_match_score)
+        init_confidence = _finite_number("min_init_confidence", min_init_confidence)
+        smoothing = _finite_number("velocity_smoothing", velocity_smoothing)
+        if not 0.0 <= min_iou <= 1.0:
+            raise ValueError("min_iou_threshold must be in [0, 1]")
+        if center_distance <= 0.0:
+            raise ValueError("max_center_distance_px must be positive")
+        if not 0.0 <= match_score <= 1.0:
+            raise ValueError("min_match_score must be in [0, 1]")
+        if not 0.0 <= init_confidence <= 1.0:
+            raise ValueError("min_init_confidence must be in [0, 1]")
+        if not 0.0 <= smoothing <= 1.0:
+            raise ValueError("velocity_smoothing must be in [0, 1]")
         if high_confidence_threshold is not None and (
             isinstance(high_confidence_threshold, bool)
             or not np.isfinite(high_confidence_threshold)
@@ -130,6 +153,13 @@ class PlayerTracker:
             raise ValueError("high_confidence_threshold must be finite and in (0.1, 1]")
         if type(recovery_min_hits) is not int or recovery_min_hits < 1:
             raise ValueError("recovery_min_hits must be a positive integer")
+
+        self.max_missed_frames = max_missed_frames
+        self.min_iou_threshold = min_iou
+        self.max_center_distance_px = center_distance
+        self.min_match_score = match_score
+        self.min_init_confidence = init_confidence
+        self.velocity_smoothing = smoothing
         self.high_confidence_threshold = high_confidence_threshold
         self.recovery_min_hits = recovery_min_hits
         self.projector = projector if projector is not None else FieldProjector()
