@@ -22,6 +22,18 @@ DEFAULT_MAX_SPEED_YD_S = 12.0        # ~24.5 mph
 DEFAULT_MAX_ACCEL_YD_S2 = 25.0       # hard cut guard (~2.6 g)
 
 
+def _positive_finite(name: str, value: float) -> float:
+    if isinstance(value, (bool, str, bytes)):
+        raise ValueError(f"{name} must be a positive finite number")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive finite number") from exc
+    if not np.isfinite(numeric) or numeric <= 0.0:
+        raise ValueError(f"{name} must be a positive finite number")
+    return numeric
+
+
 def speed_yd_s(velocity_yd_s: Sequence[float]) -> float:
     return float(np.hypot(float(velocity_yd_s[0]), float(velocity_yd_s[1])))
 
@@ -39,11 +51,12 @@ def clip_speed(
     max_speed_yd_s: float = DEFAULT_MAX_SPEED_YD_S,
 ) -> Tuple[Tuple[float, float], bool]:
     """Clamp a velocity vector to ``max_speed_yd_s``; returns ``(velocity, clipped)``."""
+    limit = _positive_finite("max_speed_yd_s", max_speed_yd_s)
     vx, vy = float(velocity_yd_s[0]), float(velocity_yd_s[1])
     speed = float(np.hypot(vx, vy))
-    if speed <= max_speed_yd_s or speed <= 0.0:
+    if speed <= limit or speed <= 0.0:
         return (vx, vy), False
-    scale = max_speed_yd_s / speed
+    scale = limit / speed
     return (vx * scale, vy * scale), True
 
 
@@ -55,11 +68,19 @@ def acceleration_from_velocity(
     max_accel_yd_s2: float = DEFAULT_MAX_ACCEL_YD_S2,
 ) -> Tuple[Tuple[float, float], float, bool]:
     """Finite-difference acceleration; returns ``(accel_xy, accel_magnitude, clipped)``."""
-    dt = max(1e-6, float(dt_s))
+    limit = _positive_finite("max_accel_yd_s2", max_accel_yd_s2)
+    if isinstance(dt_s, (bool, str, bytes)):
+        raise ValueError("dt_s must be a positive finite number")
+    try:
+        dt = float(dt_s)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("dt_s must be a positive finite number") from exc
+    if not np.isfinite(dt) or dt <= 0.0:
+        raise ValueError("dt_s must be a positive finite number")
     ax = (float(current_velocity_yd_s[0]) - float(previous_velocity_yd_s[0])) / dt
     ay = (float(current_velocity_yd_s[1]) - float(previous_velocity_yd_s[1])) / dt
     mag = float(np.hypot(ax, ay))
-    if mag <= max_accel_yd_s2 or mag <= 0.0:
+    if mag <= limit or mag <= 0.0:
         return (ax, ay), mag, False
-    scale = max_accel_yd_s2 / mag
-    return (ax * scale, ay * scale), max_accel_yd_s2, True
+    scale = limit / mag
+    return (ax * scale, ay * scale), limit, True

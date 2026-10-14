@@ -24,6 +24,18 @@ DEFAULT_GATE_CHI2_2DOF = 9.21           # chi-square 2-dof, 99% quantile
 DEFAULT_MAX_SPEED_YD_S = 12.0           # ~24.5 mph physical plausibility clamp
 
 
+def _positive_finite(name: str, value: float) -> float:
+    if isinstance(value, (bool, str, bytes)):
+        raise ValueError(f"{name} must be a positive finite number")
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive finite number") from exc
+    if not np.isfinite(numeric) or numeric <= 0.0:
+        raise ValueError(f"{name} must be a positive finite number")
+    return numeric
+
+
 def _transition(dt: float) -> np.ndarray:
     return np.array(
         [
@@ -62,11 +74,15 @@ class ConstantVelocityFieldFilter:
         position_cov_init_yd2: float = 0.05,
         velocity_cov_init_yd2_s2: float = 4.0,
     ) -> None:
-        self.process_accel_std_yd_s2 = float(process_accel_std_yd_s2)
-        self.gate_chi2_2dof = float(gate_chi2_2dof)
-        self.max_speed_yd_s = float(max_speed_yd_s)
-        self.position_cov_init_yd2 = float(position_cov_init_yd2)
-        self.velocity_cov_init_yd2_s2 = float(velocity_cov_init_yd2_s2)
+        self.process_accel_std_yd_s2 = _positive_finite(
+            "process_accel_std_yd_s2", process_accel_std_yd_s2
+        )
+        self.gate_chi2_2dof = _positive_finite("gate_chi2_2dof", gate_chi2_2dof)
+        self.max_speed_yd_s = _positive_finite("max_speed_yd_s", max_speed_yd_s)
+        self.position_cov_init_yd2 = _positive_finite("position_cov_init_yd2", position_cov_init_yd2)
+        self.velocity_cov_init_yd2_s2 = _positive_finite(
+            "velocity_cov_init_yd2_s2", velocity_cov_init_yd2_s2
+        )
 
         self.initialized: bool = False
         self.mean: np.ndarray = np.zeros(4, dtype=np.float64)
@@ -111,8 +127,8 @@ class ConstantVelocityFieldFilter:
             raise RuntimeError("filter not initialized")
         self.last_speed_clipped = False
         dt = float(timestamp_s) - self.timestamp_s
-        if dt < 0.0:
-            raise ValueError("timestamps must be non-decreasing")
+        if not np.isfinite(dt) or dt < 0.0:
+            raise ValueError("timestamps must be finite and non-decreasing")
         F = _transition(dt)
         Q = _process_noise(dt, self.process_accel_std_yd_s2)
         self.mean = F @ self.mean
@@ -207,4 +223,3 @@ class RawProjectionBaseline:
 
     def predict(self, timestamp_s: float) -> Optional[Tuple[float, float]]:  # pragma: no cover
         return None
-
