@@ -8,6 +8,91 @@ import numpy as np
 from scipy.optimize import least_squares
 
 
+_DEGENERATE_VP = "Degenerate vanishing point (yard lines are parallel or fit failed)"
+
+
+def _suppress_near_duplicates(lines: np.ndarray, h: int) -> List[Dict[str, Any]]:
+    """Greedy near-duplicate suppression of Hough lines, strongest first.
+
+    Behaviour is identical to the original per-line Python loop (same scalar arithmetic, same
+    comparisons, same order). Only the ``any(...)`` over previously kept lines is vectorised.
+    At 1080p the fixed vote threshold yields ~10^5 Hough lines, and the nested Python loops were
+    the dominant cost of calibration (9 s per frame versus 0.4 s in the Hough transform itself).
+    """
+    rows = np.asarray(lines).reshape(-1, 3)  # OpenCV 4: (N, 1, 3); OpenCV 5: (N, 3)
+    kept: List[Dict[str, Any]] = []
+    kept_x = kept_m = None
+    n_kept = 0
+    for rho, theta, votes in rows:
+        cos_t = np.cos(theta)
+        if abs(cos_t) < 0.55:
+            continue
+        m = -np.sin(theta) / np.cos(theta)
+        b = rho / np.cos(theta)
+        x_mid = m * (h / 2.0) + b
+        if kept_x is None:
+            # Match the scalar dtype (float32 on NumPy 2, float64 on NumPy 1) so every comparison
+            # below is evaluated at exactly the precision the original scalar code used.
+            kept_x = np.empty(len(rows), dtype=type(x_mid))
+            kept_m = np.empty(len(rows), dtype=type(m))
+        if n_kept and np.any((np.abs(x_mid - kept_x[:n_kept]) < 25)
+                             & (np.abs(m - kept_m[:n_kept]) < 0.12)):
+            continue
+        kept_x[n_kept] = x_mid
+        kept_m[n_kept] = m
+        n_kept += 1
+        kept.append({"x_mid": float(x_mid), "m": float(m), "b": float(b), "votes": float(votes)})
+    return kept
+
+
+def _pencil_ransac(kept: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Vanishing-point pencil RANSAC: all parallel 5-yard lines satisfy m_k = alpha*x_mid_k + beta.
+
+    Exhaustive over line pairs in the original (i, j) order with the original strict ``>`` tie
+    rule, so the winner is unchanged. The per-pair inlier test is evaluated for a whole row of
+    pairs at once (float64, same operation order as the scalar code), and a pair is skipped only
+    when even the sum of *all* its inlier votes cannot beat the current best score.
+    """
+    n = len(kept)
+    best_inliers: List[Dict[str, Any]] = []
+    best_score = -1.0
+    if n < 2:
+        return best_inliers
+    kx = np.array([k["x_mid"] for k in kept], dtype=np.float64)
+    km = np.array([k["m"] for k in kept], dtype=np.float64)
+    kv = np.array([k["votes"] for k in kept], dtype=np.float64)
+    for i in range(n - 1):
+        dxm = kx[i + 1:] - kx[i]
+        js = np.nonzero(np.abs(dxm) >= 80)[0]
+        if js.size == 0:
+            continue
+        alpha = (km[i + 1:][js] - km[i]) / dxm[js]
+        beta = km[i] - alpha * kx[i]
+        ok = (alpha >= 0.0) & (alpha <= 0.005)
+        if not ok.any():
+            continue
+        js, alpha, beta = js[ok], alpha[ok], beta[ok]
+        inl = np.abs(km[None, :] - (alpha[:, None] * kx[None, :] + beta[:, None])) < 0.025
+        vote_upper_bound = inl @ kv
+        for r in range(js.size):
+            # score <= sum of all inlier votes, so this can never skip a pair that would win
+            # (the margin only guards float rounding when votes are not integers).
+            if vote_upper_bound[r] * (1.0 + 1e-9) < best_score:
+                continue
+            idx = np.nonzero(inl[r])[0]
+            order = idx[np.argsort(-kv[idx], kind="stable")]
+            dedup: List[Dict[str, Any]] = []
+            for t in order:
+                cand = kept[t]
+                if all(abs(cand["x_mid"] - d["x_mid"]) > 45 for d in dedup):
+                    dedup.append(cand)
+            score = sum(d["votes"] for d in dedup)
+            if score > best_score:
+                best_score = score
+                best_inliers = sorted(dedup, key=lambda x: x["x_mid"])
+    return best_inliers
+
+
 def detect_yard_lines_and_vp(
     ridge_u8: np.ndarray,
     h: int,
@@ -21,39 +106,8 @@ def detect_yard_lines_and_vp(
     if lines is None:
         return None, None, 0, np.nan, np.nan, "No Hough lines above threshold"
 
-    kept = []
-    # OpenCV 4 returns (N, 1, 3); OpenCV 5 returns (N, 3).
-    for rho, theta, votes in np.asarray(lines).reshape(-1, 3):
-        if abs(np.cos(theta)) < 0.55:
-            continue
-        m = -np.sin(theta) / np.cos(theta)
-        b = rho / np.cos(theta)
-        x_mid = m * (h / 2.0) + b
-        if any(abs(x_mid - k["x_mid"]) < 25 and abs(m - k["m"]) < 0.12 for k in kept):
-            continue
-        kept.append({"x_mid": float(x_mid), "m": float(m), "b": float(b), "votes": float(votes)})
-
-    # Vanishing-point pencil RANSAC: all parallel 5-yard lines satisfy m_k = alpha * x_mid_k + beta
-    best_inliers = []
-    best_score = -1.0
-    for i in range(len(kept)):
-        for j in range(i + 1, len(kept)):
-            dxm = kept[j]["x_mid"] - kept[i]["x_mid"]
-            if abs(dxm) < 80:
-                continue
-            alpha = (kept[j]["m"] - kept[i]["m"]) / dxm
-            beta = kept[i]["m"] - alpha * kept[i]["x_mid"]
-            if not (0.0 <= alpha <= 0.005):
-                continue
-            inliers = [k for k in kept if abs(k["m"] - (alpha * k["x_mid"] + beta)) < 0.025]
-            dedup = []
-            for k in sorted(inliers, key=lambda x: -x["votes"]):
-                if all(abs(k["x_mid"] - d["x_mid"]) > 45 for d in dedup):
-                    dedup.append(k)
-            score = sum(d["votes"] for d in dedup)
-            if score > best_score:
-                best_score = score
-                best_inliers = sorted(dedup, key=lambda x: x["x_mid"])
+    kept = _suppress_near_duplicates(lines, h)
+    best_inliers = _pencil_ransac(kept)
 
     if len(best_inliers) < 3:
         return None, None, 0, np.nan, np.nan, "Fewer than 3 yard lines in VP pencil"
@@ -83,11 +137,18 @@ def detect_yard_lines_and_vp(
     ms = np.array([yl["m"] for yl in best_inliers], dtype=np.float64)
     weights = np.array([np.sum(pts_k == k) for k in k_indices], dtype=np.float64)
     alpha0, beta0 = np.polyfit(xm, ms, 1, w=weights)
+    if not np.isfinite(alpha0) or alpha0 == 0.0:
+        return None, None, 0, np.nan, np.nan, _DEGENERATE_VP   # zero slope: VP at infinity
     y_vp0 = (h / 2.0) - 1.0 / alpha0
     x_vp0 = -beta0 / alpha0
     a0_init = xm[0]
     a1_init = (xm[-1] - xm[0]) / max(1.0, float(k_indices[-1] - k_indices[0]))
     p0 = np.array([x_vp0, y_vp0, a0_init, a1_init, 0.0], dtype=np.float64)
+    if not np.all(np.isfinite(p0)):
+        # Exactly parallel yard lines (no perspective convergence, e.g. a straight-on view) give a
+        # zero slope fit, so 1/alpha0 is infinite. The pencil model cannot represent that; refuse
+        # the frame rather than crash a whole video run inside scipy.
+        return None, None, 0, np.nan, np.nan, _DEGENERATE_VP
 
     def residuals(p):
         x_vp, y_vp, a0, a1, a2 = p
@@ -96,8 +157,13 @@ def detect_yard_lines_and_vp(
         x_pred = x_mid_k + m_k * (pts_y - (h / 2.0))
         return (pts_x - x_pred) / np.sqrt(1.0 + m_k ** 2)
 
-    opt = least_squares(residuals, p0, loss="huber", f_scale=1.5)
+    try:
+        opt = least_squares(residuals, p0, loss="huber", f_scale=1.5)
+    except ValueError:  # e.g. non-finite residuals from a pathological initial guess
+        return None, None, 0, np.nan, np.nan, _DEGENERATE_VP
     x_vp, y_vp, a0, a1, a2 = opt.x
+    if not np.all(np.isfinite(opt.x)) or abs((h / 2.0) - y_vp) < 1e-9:
+        return None, None, 0, np.nan, np.nan, _DEGENERATE_VP
     orth_err = np.abs(residuals(opt.x))
 
     yard_lines = []
