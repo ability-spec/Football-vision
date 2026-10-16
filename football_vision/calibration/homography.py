@@ -119,7 +119,12 @@ def calibrate_frame(
 
     yard_lines, vp_yard, ridge_cnt, orth_med, orth_mean, err_yl = detect_yard_lines_and_vp(ridge_u8, h)
     if yard_lines is None or vp_yard is None:
-        reason = "no_hough_lines" if err_yl and "No Hough" in err_yl else "insufficient_yard_lines"
+        if err_yl and "No Hough" in err_yl:
+            reason = "no_hough_lines"
+        elif err_yl and "Degenerate vanishing point" in err_yl:
+            reason = "degenerate_vanishing_point"
+        else:
+            reason = "insufficient_yard_lines"
         return CalibrationResult(
             success=False,
             H=None,
